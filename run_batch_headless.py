@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys, types, os
-os.chdir(".")
+os.chdir("/data/compose/grok-register-camoufox")
 sys.path.insert(0, ".")
 # stub tkinter for headless server
 try:
@@ -46,6 +46,11 @@ Path("config.json").write_text(json.dumps(cfg,ensure_ascii=False,indent=2)+"\n")
 print(f"[env] DISPLAY={os.environ.get('DISPLAY')!r} time={time.strftime('%F %T')}", flush=True)
 app.load_config()
 app._wire_runtime_modules()
-print(f"[batch] count={count} workers={workers} proxy={app.config.get('proxy')}", flush=True)
+def _rp(u):
+    s=str(u or "")
+    if "://" in s and "@" in s.split("://",1)[-1]:
+        sch,rest=s.split("://",1); cred,host=rest.rsplit("@",1); return f"{sch}://***@{host}"
+    return s
+print(f"[batch] count={count} workers={workers} proxy={_rp(app.config.get('proxy'))}", flush=True)
 app.run_registration_cli(count)
 print("[batch] finished", flush=True)

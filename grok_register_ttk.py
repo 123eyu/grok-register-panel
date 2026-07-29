@@ -253,6 +253,40 @@ FAIL_TURNSTILE = "turnstile"
 FAIL_PROFILE = "profile_fill"
 FAIL_OTHER = "other"
 
+
+def redact_proxy(url: str) -> str:
+    """Strip credentials from proxy URL for logs/jsonl."""
+    s = str(url or "").strip()
+    if not s:
+        return ""
+    try:
+        from urllib.parse import urlparse, urlunparse
+        if "://" not in s:
+            parts = s.split(":")
+            if len(parts) >= 4:
+                return f"{parts[0]}:{parts[1]}:***"
+            return s
+        p = urlparse(s)
+        if p.username or p.password:
+            host = p.hostname or ""
+            netloc = f"{host}:{p.port}" if p.port else host
+            return urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
+        return s
+    except Exception:
+        import re as _re
+        return _re.sub(r"://([^:/@]+):([^@/]+)@", r"://***:***@", s)
+
+
+def mask_email(email: str) -> str:
+    s = str(email or "").strip()
+    if "@" not in s:
+        return s
+    local, _, domain = s.partition("@")
+    if len(local) <= 2:
+        return (local[:1] + "***@" + domain) if local else ("***@" + domain)
+    return local[:2] + "***@" + domain
+
+
 FAIL_LABELS = {
     FAIL_DOMAIN: "域名拒绝",
     FAIL_RISK: "注册风控",
@@ -315,12 +349,12 @@ def record_register_result(
     rec = {
         "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "status": status,
-        "email": email or "",
+        "email": mask_email(email or ""),
         "kind": kind or "",
         "detail": (detail or "")[:300],
         "worker": worker or "",
         "exit_ip": exit_ip,
-        "proxy": proxy,
+        "proxy": redact_proxy(proxy),
         "port": port,
         "bot_flag": bot_flag,
         "risk": risk,
@@ -558,9 +592,9 @@ def get_proxies():
 
 
 _MAIL_DIRECT_MARKERS = (
-    "mail-api.hermesjj.com",
+    "mail-api.example.com",
+    "hermaly.com",
     "example.com",
-    "hermesjj.com",
     "/admin/new_address",
     "/api/mails",
     "/api/mail/",

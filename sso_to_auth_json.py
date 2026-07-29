@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 SSO cookie → CPA / Grok2API auth.json 格式（纯 HTTP）
@@ -29,6 +30,24 @@ import argparse
 import base64
 import hashlib
 import json
+
+
+def _ensure_private_file(path) -> None:
+    """Owner-only permissions for auth material."""
+    import os
+    from pathlib import Path
+    p = Path(path)
+    try:
+        if p.parent and p.parent.exists():
+            os.chmod(p.parent, 0o700)
+    except Exception:
+        pass
+    try:
+        if p.exists():
+            os.chmod(p, 0o600)
+    except Exception:
+        pass
+
 import os
 import re
 import secrets
@@ -1316,6 +1335,7 @@ def write_cpa_auth(auth_dir: Path, record: dict) -> Path:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+    _ensure_private_file(path)
     return path
 
 
@@ -1392,6 +1412,7 @@ def write_auth_json(path: Path, auth_key: str, entry: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+    _ensure_private_file(path)
 
 
 def merge_auth_json(path: Path, auth_key: str, entry: dict, unique: bool = True) -> None:
@@ -1412,6 +1433,7 @@ def merge_auth_json(path: Path, auth_key: str, entry: dict, unique: bool = True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+    _ensure_private_file(path)
 
 
 def load_sso_list(path: str | None, single: str | None) -> list[str]:

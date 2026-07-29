@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CPA to +100 from base 2292. 3 workers. Pause only after 5 unique risk rejects (SSO ignored)."""
+"""Orch: run batches until CPA target. Workers/risk pause from monitor_control.json."""
 from __future__ import annotations
 
 import json
@@ -19,8 +19,8 @@ LOG_DIR = ROOT / "log"
 RESULTS = LOG_DIR / "register_results.jsonl"
 ORCH_LOG = LOG_DIR / f"orch100-fixed-{time.strftime('%Y%m%d-%H%M%S')}.log"
 WORKERS = 3
-BASE0 = 2292
-TARGET_CPA = BASE0 + 100
+BASE0 = int(__import__("os").environ.get("ORCH_BASE_CPA", "0") or 0)
+TARGET_CPA = BASE0 + int(__import__("os").environ.get("ORCH_ADD_COUNT", "100") or 100)
 RISK_PAUSE = 10
 MAX_ROUNDS = 60
 CONTROL_FILE = LOG_DIR / "monitor_control.json"
@@ -360,9 +360,7 @@ def main():
         return
 
     log(f"rules: workers={WORKERS} pause_on_risk_only={RISK_PAUSE} SSO ignored block={sorted(read_blocklist_asns())}")
-    with open(RESULTS, "a", encoding="utf-8") as f:
-        f.write(f"--- orch100-fixed {time.strftime('%Y-%m-%dT%H:%M:%SZ')} cpa={cpa_count()} ---\n")
-
+    
     round_i = 0
     while cpa_count() < TARGET_CPA and round_i < MAX_ROUNDS:
         round_i += 1

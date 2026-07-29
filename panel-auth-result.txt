@@ -1,0 +1,6 @@
+POST /api/start no-token -> 401 {"ok": false, "error": "unauthorized: set MONITOR_TOKEN and pass Authorization: Bearer <token>"}
+POST /api/stop bad-token -> 401 {"ok": false, "error": "unauthorized: set MONITOR_TOKEN and pass Authorization: Bearer <token>"}
+POST /api/start good-token -> 200 {"ok": true, "pid": 0, "mode": "batch", "message": "stub"}
+GET /api/health CORS=None
+status tail sample: ['(raw log tail disabled; set PANEL_INCLUDE_TAIL=1)']
+ALL_PANEL_AUTH_OK

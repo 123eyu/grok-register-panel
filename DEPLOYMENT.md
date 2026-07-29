@@ -66,8 +66,8 @@ cp config.example.json config.json
 
 ## 启动
 
-- 图形界面：双击 `start-gui.cmd`
-- 命令行：双击 `start-cli.cmd`，输入 `start` 后开始任务
+- 图形界面：双击 ``python grok_register_ttk.py` (GUI)`
+- 命令行：双击 ``python run_batch_headless.py <n> <workers>``，输入 `start` 后开始任务
 
 ## Camoufox 常用命令
 

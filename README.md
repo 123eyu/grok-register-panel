@@ -2,6 +2,8 @@
 
 # Grok Register + Live Panel
 
+Based on [AaronL725/grok-register](https://github.com/AaronL725/grok-register) (MIT).
+
 批量注册 Grok 账号（Camoufox）+ Web 监控面板  
 启停 / 并发 / ASN 黑名单 / 1h·3h·12h 成功率
 
@@ -234,3 +236,17 @@ A: 看 `log/orch100-stdout.log` 与最新 `log/batch-*.log`；欢迎提 issue / 
 ---
 
 Star 鼓励一下 → https://github.com/lij768423-svg/grok-register-panel
+
+
+## Panel security
+
+```bash
+export MONITOR_TOKEN='long-random-secret'
+export MONITOR_HOST=127.0.0.1   # do not use 0.0.0.0 fallback
+python webui/monitor.py
+# browser: localStorage.setItem('MONITOR_TOKEN', 'long-random-secret')
+```
+
+Write APIs (`/api/start`, `/api/stop`, `/api/control`, …) require
+`Authorization: Bearer <MONITOR_TOKEN>`. Raw log tails are off unless
+`PANEL_INCLUDE_TAIL=1`.

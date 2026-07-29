@@ -12,10 +12,28 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+try:
+    from webui.security_utils import (
+        check_token_optional_read,
+        expected_token,
+        mask_email,
+        redact_proxy,
+    )
+except ImportError:  # running as script from webui/
+    from security_utils import (  # type: ignore
+        check_token_optional_read,
+        expected_token,
+        mask_email,
+        redact_proxy,
+    )
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "log"
 CPA_DIR = Path(os.environ.get("CPA_AUTH_DIR", str(ROOT / "cpa_auth")))
 BS = ROOT / "browser_session.py"
+MONITOR_TOKEN_ENV = "MONITOR_TOKEN"
+PANEL_INCLUDE_TAIL = os.environ.get("PANEL_INCLUDE_TAIL", "0").strip() in ("1", "true", "yes")
+
 BASE_FILE = LOG_DIR / "batch1000.base"
 ORCH_PID = LOG_DIR / "orch100.pid"
 BATCH_PID = LOG_DIR / "batch100.pid"
@@ -101,6 +119,13 @@ def discover_log():
 
 
 def read_base():
+    """Prefer control.base_cpa; fall back to batch1000.base file if present."""
+    try:
+        c = load_control()
+        if c.get("base_cpa") is not None and str(c.get("base_cpa")).strip() != "":
+            return int(c["base_cpa"])
+    except Exception:
+        pass
     try:
         return int(BASE_FILE.read_text().strip())
     except Exception:
@@ -190,7 +215,7 @@ def parse_log(path, max_tail=400_000):
             w = f"W{wm.group(1)}" if wm else "?"
             worker_ok[w] = worker_ok.get(w, 0) + 1
             ts = line[1:9] if line.startswith("[") else ""
-            recent_ok.append({"t": ts, "w": w, "email": email})
+            recent_ok.append({"t": ts, "w": w, "email": mask_email(email)})
         if RE_FAIL.search(line):
             fail += 1
             fm = RE_FAIL_KIND.search(line)
@@ -718,8 +743,9 @@ def snapshot():
         },
         "blacklist_update": bl_err,
         "rates": rates,
-        **parsed,
+        **{k: v for k, v in parsed.items() if k != "tail"},
         "workers": workers_show,
+        "tail": (parsed.get("tail") or []) if PANEL_INCLUDE_TAIL else ["(raw log tail disabled; set PANEL_INCLUDE_TAIL=1)"],
     }
 
 
@@ -846,7 +872,7 @@ HTML = r"""<!DOCTYPE html>
         </select>
       </div>
       <div class="field"><label>并发 workers</label>
-        <input type="number" id="workers" min="1" max="24" value="3"/>
+        <input type="number" id="workers-input" min="1" max="24" value="3"/>
       </div>
       <div class="field"><label>batch 数量</label>
         <input type="number" id="batch_count" min="1" max="200" value="40"/>
@@ -906,6 +932,7 @@ HTML = r"""<!DOCTYPE html>
       <div class="section-head">
         <h2>黑名单</h2>
         <button onclick="refreshBlacklist()">刷新黑名单</button>
+          <button class="danger" onclick="resetBlacklist('baseline')">重置黑名单</button>
       </div>
       <div class="chips" id="bl-kpis"></div>
       <div class="msg" id="bl-msg"></div>
@@ -923,7 +950,7 @@ HTML = r"""<!DOCTYPE html>
   </div>
 
   <div class="two panel">
-    <div class="card"><h2>Worker 成功 / 失败</h2><div class="chips" id="workers"></div></div>
+    <div class="card"><h2>Worker 成功 / 失败</h2><div class="chips" id="workers-stats"></div></div>
     <div class="card"><h2>失败分类</h2><div class="chips" id="fails"></div></div>
   </div>
   <div class="two panel">
@@ -967,8 +994,8 @@ async function refresh() {
 }
 function fillControl(d) {
   const c = d.control || {};
-  if (document.activeElement && ["workers","batch_count","add_count","risk_pause","mode"].includes(document.activeElement.id)) return;
-  if (c.workers != null) document.getElementById("workers").value = c.workers;
+  if (document.activeElement && ["workers-input","batch_count","add_count","risk_pause","mode"].includes(document.activeElement.id)) return;
+  if (c.workers != null) document.getElementById("workers-input").value = c.workers;
   if (c.batch_count != null) document.getElementById("batch_count").value = c.batch_count;
   if (c.add_count != null && document.getElementById("add_count")) document.getElementById("add_count").value = c.add_count;
   if (c.risk_pause != null) document.getElementById("risk_pause").value = c.risk_pause;
@@ -976,7 +1003,7 @@ function fillControl(d) {
 }
 function controlBody() {
   return {
-    workers: Number(document.getElementById("workers").value || 3),
+    workers: Number(document.getElementById("workers-input").value || 3),
     batch_count: Number(document.getElementById("batch_count").value || 40),
     add_count: Number((document.getElementById("add_count") || {}).value || 40),
     risk_pause: Number(document.getElementById("risk_pause").value || 10),
@@ -1011,6 +1038,20 @@ async function doStop() {
     setTimeout(refresh, 800);
   } catch (e) { setMsg("ctrl-msg", String(e.message || e), "err"); }
   document.getElementById("btn-stop").disabled = false;
+}
+async function resetBlacklist(mode) {
+  mode = mode || "baseline";
+  if (!confirm(mode === "empty" ? "清空全部黑名单？" : "重置为基线熔断？")) return;
+  try {
+    const headers = {"Content-Type": "application/json"};
+    const tok = (window.MONITOR_TOKEN || localStorage.getItem("MONITOR_TOKEN") || "").trim();
+    if (tok) headers["Authorization"] = "Bearer " + tok;
+    const r = await fetch("/api/blacklist/reset", { method: "POST", headers, body: JSON.stringify({ mode }) });
+    const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
+    setMsg("bl-msg", j.message || "已重置", "ok");
+    setTimeout(refresh, 500);
+  } catch (e) { setMsg("bl-msg", String(e.message || e), "err"); }
 }
 async function refreshBlacklist() {
   try {
@@ -1153,7 +1194,7 @@ function render(d) {
 
   const wset = new Set([...(Object.keys(d.worker_ok || {})), ...(Object.keys(d.worker_fail || {}))]);
   const ws = [...wset].sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
-  document.getElementById("workers").innerHTML = ws.length ? ws.map(w =>
+  document.getElementById("workers-stats").innerHTML = ws.length ? ws.map(w =>
     `<div class="chip"><span>${esc(w)}</span><b><span class="ok">${d.worker_ok && d.worker_ok[w] || 0}</span> <span style="color:var(--muted)">/</span> <span class="fail">${d.worker_fail && d.worker_fail[w] || 0}</span></b></div>`
   ).join("") : '<span style="color:var(--muted)">暂无</span>';
   const fk = Object.entries(d.fail_kinds || {}).sort((a, b) => b[1] - a[1]);
@@ -1196,11 +1237,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # No wildcard CORS — panel is same-origin. Optional explicit origin via env.
+        allow = str(os.environ.get("MONITOR_CORS_ORIGIN", "") or "").strip()
+        if allow and allow != "*":
+            self.send_header("Access-Control-Allow-Origin", allow)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
         self.wfile.write(body)
+
+    def _auth_header(self) -> str:
+        return (
+            self.headers.get("Authorization")
+            or self.headers.get("X-Monitor-Token")
+            or ""
+        )
+
+    def _require_write(self) -> bool:
+        if check_token_optional_read(self._auth_header(), write=True):
+            return True
+        self._json(401, {"ok": False, "error": "unauthorized: set MONITOR_TOKEN and pass Authorization: Bearer <token>"})
+        return False
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"), "application/json; charset=utf-8")
@@ -1254,6 +1311,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         body = self._read_body()
+        # All POST endpoints require MONITOR_TOKEN
+        if not self._require_write():
+            return
         if u.path == "/api/control":
             try:
                 self._json(200, save_control(body))
@@ -1286,6 +1346,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json(500, {"error": str(e)})
             return
+        if u.path == "/api/blacklist/reset":
+            try:
+                from webui.blacklist_ops import reset_blacklist as _reset_bl
+            except ImportError:
+                try:
+                    from blacklist_ops import reset_blacklist as _reset_bl  # type: ignore
+                except ImportError:
+                    _reset_bl = None
+            if _reset_bl is None:
+                self._json(501, {"ok": False, "error": "blacklist_ops unavailable"})
+                return
+            try:
+                mode = (body or {}).get("mode") or "baseline"
+                self._json(200, _reset_bl(mode))
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
+            return
         if u.path == "/api/stats/refresh":
             try:
                 self._json(200, success_stats())
@@ -1301,15 +1378,17 @@ def main():
     try:
         httpd = ThreadingHTTPServer((host, BIND_PORT), Handler)
     except OSError as e1:
-        try:
-            host = "0.0.0.0"
-            httpd = ThreadingHTTPServer((host, BIND_PORT), Handler)
-        except OSError as e2:
-            raise SystemExit(
-                f"cannot bind {BIND_HOST}:{BIND_PORT} ({e1}) or 0.0.0.0:{BIND_PORT} ({e2}); "
-                "stop wiki-question-api on 8787 or set MONITOR_PORT"
-            )
-    print(f"[monitor] http://{BIND_HOST}:{BIND_PORT}/  (bound {host}:{BIND_PORT})", flush=True)
+        raise SystemExit(
+            f"cannot bind {BIND_HOST}:{BIND_PORT} ({e1}); "
+            "set MONITOR_HOST/MONITOR_PORT (no 0.0.0.0 fallback)"
+        )
+    tok = expected_token()
+    if not tok:
+        print(
+            "[monitor] WARNING: MONITOR_TOKEN unset — write APIs (start/stop/control) will return 401",
+            flush=True,
+        )
+    print(f"[monitor] http://{host}:{BIND_PORT}/  (bound {host}:{BIND_PORT})", flush=True)
     httpd.serve_forever()
 
 
