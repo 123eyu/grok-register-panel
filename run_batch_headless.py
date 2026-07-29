@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys, types, os
-os.chdir("/data/compose/grok-register-camoufox")
+os.chdir(str(Path(__file__).resolve().parent))
 sys.path.insert(0, ".")
 # stub tkinter for headless server
 try:

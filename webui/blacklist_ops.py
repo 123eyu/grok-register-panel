@@ -7,7 +7,7 @@ import re
 import time
 from pathlib import Path
 
-ROOT = Path("/data/compose/grok-register-camoufox")
+ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "log"
 BS = ROOT / "browser_session.py"
 BLACKLIST_SNAPSHOT = LOG_DIR / "blacklist_snapshot.json"
