@@ -376,7 +376,9 @@ def blacklist_update_errors():
 
 
 def success_stats():
-    """Aggregate success stats: CPA + jsonl + latest batch."""
+    """Aggregate success stats: CPA + jsonl + time-window rates + latest batch."""
+    from datetime import datetime, timezone, timedelta
+
     cpa = cpa_count()
     base = read_base()
     jsonl_ok = 0
@@ -384,13 +386,36 @@ def success_stats():
     jsonl_fail = 0
     by_day = {}
     results = LOG_DIR / "register_results.jsonl"
+
+    # windows in hours -> counters
+    windows_h = (1, 3, 12)
+    now = datetime.now(timezone.utc)
+    win = {
+        h: {"ok": 0, "fail": 0, "risk": 0, "total": 0, "since": (now - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        for h in windows_h
+    }
+
+    def _parse_ts(ts: str):
+        if not ts:
+            return None
+        s = str(ts).strip()
+        try:
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            return None
+
     try:
         if results.exists():
-            # tail last 2MB
             size = results.stat().st_size
+            # last 8MB covers 12h under high volume
             with results.open("rb") as f:
-                if size > 2_000_000:
-                    f.seek(size - 2_000_000)
+                if size > 8_000_000:
+                    f.seek(size - 8_000_000)
                     f.readline()
                 for line in f:
                     try:
@@ -413,8 +438,44 @@ def success_stats():
                         jsonl_fail += 1
                         if day:
                             by_day[day]["fail"] += 1
+
+                    dt = _parse_ts(o.get("ts") or "")
+                    if not dt:
+                        continue
+                    age = now - dt
+                    for h in windows_h:
+                        if age <= timedelta(hours=h):
+                            bucket = win[h]
+                            if st == "ok":
+                                bucket["ok"] += 1
+                            elif st == "risk":
+                                bucket["risk"] += 1
+                            elif st:
+                                bucket["fail"] += 1
+                            if st in ("ok", "risk", "fail", "sso_timeout", "browser", "other"):
+                                bucket["total"] += 1
+                            elif st:
+                                bucket["total"] += 1
     except Exception:
         pass
+
+    # normalize window rates
+    rates = {}
+    for h, b in win.items():
+        # total attempts that finished with a status
+        total = int(b["ok"]) + int(b["fail"]) + int(b["risk"])
+        ok = int(b["ok"])
+        rate = round(100.0 * ok / total, 1) if total else None
+        rates[f"{h}h"] = {
+            "hours": h,
+            "ok": ok,
+            "fail": int(b["fail"]),
+            "risk": int(b["risk"]),
+            "total": total,
+            "success_rate": rate,
+            "since": b["since"],
+        }
+
     log = discover_log()
     parsed = parse_log(log) if log else {}
     batch_ok = parsed.get("ok") or 0
@@ -430,6 +491,7 @@ def success_stats():
         "batch_fail": batch_fail,
         "batch_log": parsed.get("log_name"),
         "by_day": by_day,
+        "rates": rates,
         "refreshed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     try:
@@ -437,6 +499,8 @@ def success_stats():
     except Exception:
         pass
     return data
+
+
 
 
 def _parse_etime(s):
@@ -608,6 +672,10 @@ def snapshot():
     control = load_control()
     bl = read_blacklist()
     bl_err = blacklist_update_errors()
+    try:
+        rates = success_stats().get("rates") or {}
+    except Exception:
+        rates = {}
     target = parsed.get("count_target") or control.get("batch_count") or 40
     ok = parsed.get("ok") or 0
     fail = parsed.get("fail") or 0
@@ -649,6 +717,7 @@ def snapshot():
             "errors": bl.get("errors"),
         },
         "blacklist_update": bl_err,
+        "rates": rates,
         **parsed,
         "workers": workers_show,
     }
@@ -796,6 +865,20 @@ HTML = r"""<!DOCTYPE html>
   </div>
 
   <div class="grid" id="kpis" style="margin-top:14px"></div>
+
+  <div class="card panel">
+    <div class="section-head">
+      <h2 style="margin:0">时段成功率</h2>
+      <span class="mono" id="rates-updated" style="color:var(--muted);font-size:12px">来自 register_results.jsonl</span>
+    </div>
+    <div class="grid" id="rate-kpis" style="grid-template-columns:repeat(3,1fr)"></div>
+    <div style="margin-top:10px;overflow:auto">
+      <table>
+        <thead><tr><th>窗口</th><th>成功</th><th>失败</th><th>风控</th><th>合计</th><th>成功率</th></tr></thead>
+        <tbody id="rate-body"></tbody>
+      </table>
+    </div>
+  </div>
 
   <div class="card panel">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
@@ -965,8 +1048,46 @@ function renderBlacklist(bl, upd) {
     `<tr><td class="mono">AS${esc(a.asn)}</td><td class="mono">${esc(a.log || "")}</td></tr>`
   ).join("") || '<tr><td colspan="2" style="color:var(--muted)">暂无自动新增</td></tr>';
 }
+
+function rateCls(r) {
+  if (r == null) return "";
+  if (r >= 70) return "ok";
+  if (r >= 40) return "warn";
+  return "fail";
+}
+function renderRates(rates) {
+  rates = rates || {};
+  const order = ["1h", "3h", "12h"];
+  const labels = { "1h": "近 1 小时", "3h": "近 3 小时", "12h": "近 12 小时" };
+  const cards = order.map(k => {
+    const b = rates[k] || {};
+    const r = b.success_rate;
+    const val = r == null ? "—" : (r + "%");
+    const sub = (b.ok ?? 0) + " ok / " + (b.total ?? 0) + " 次";
+    return `<div class="card"><div class="label">${esc(labels[k] || k)}</div><div class="value ${rateCls(r)}">${esc(val)}</div><div class="sub">${esc(sub)}</div></div>`;
+  });
+  const el = document.getElementById("rate-kpis");
+  if (el) el.innerHTML = cards.join("");
+  const body = document.getElementById("rate-body");
+  if (body) {
+    body.innerHTML = order.map(k => {
+      const b = rates[k] || {};
+      const r = b.success_rate;
+      return `<tr>
+        <td>${esc(labels[k] || k)}</td>
+        <td class="ok">${b.ok ?? 0}</td>
+        <td class="fail">${b.fail ?? 0}</td>
+        <td class="warn">${b.risk ?? 0}</td>
+        <td>${b.total ?? 0}</td>
+        <td class="${rateCls(r)}"><b>${r == null ? "—" : (r + "%")}</b></td>
+      </tr>`;
+    }).join("");
+  }
+}
+
 function renderStats(s) {
   s = s || {};
+  if (s.rates) renderRates(s.rates);
   document.getElementById("stats-chips").innerHTML = [
     ["CPA", s.cpa ?? "—", "accent"],
     ["CPA Δ", s.cpa_delta ?? "—", "ok"],
@@ -1003,10 +1124,16 @@ function render(d) {
     ["botFlag 0/1", (d.bot0 ?? 0) + "/" + (d.bot1 ?? 0), "warn", "注册风控采样"],
     ["黑名单 ASN", (d.blacklist && d.blacklist.count) ?? "—", "accent", "更新错误 " + ((d.blacklist_update && d.blacklist_update.error_count) ?? 0)],
     ["ETA", d.eta || "—", "", "并发 " + (d.workers ?? "—") + " · " + (d.rate_per_min != null ? d.rate_per_min + "/min" : "")],
+    ["1h 成功率", (d.rates && d.rates["1h"] && d.rates["1h"].success_rate != null) ? (d.rates["1h"].success_rate + "%") : "—", rateCls(d.rates && d.rates["1h"] && d.rates["1h"].success_rate), d.rates && d.rates["1h"] ? ((d.rates["1h"].ok||0) + "/" + (d.rates["1h"].total||0)) : "—"],
+    ["3h 成功率", (d.rates && d.rates["3h"] && d.rates["3h"].success_rate != null) ? (d.rates["3h"].success_rate + "%") : "—", rateCls(d.rates && d.rates["3h"] && d.rates["3h"].success_rate), d.rates && d.rates["3h"] ? ((d.rates["3h"].ok||0) + "/" + (d.rates["3h"].total||0)) : "—"],
+    ["12h 成功率", (d.rates && d.rates["12h"] && d.rates["12h"].success_rate != null) ? (d.rates["12h"].success_rate + "%") : "—", rateCls(d.rates && d.rates["12h"] && d.rates["12h"].success_rate), d.rates && d.rates["12h"] ? ((d.rates["12h"].ok||0) + "/" + (d.rates["12h"].total||0)) : "—"],
   ];
   document.getElementById("kpis").innerHTML = kpis.map(([label, val, cls, sub]) =>
     `<div class="card"><div class="label">${esc(label)}</div><div class="value ${cls}">${esc(val)}</div><div class="sub">${esc(sub)}</div></div>`
   ).join("");
+  renderRates(d.rates || {});
+  const ru = document.getElementById("rates-updated");
+  if (ru && d.ts_human) ru.textContent = "jsonl 窗口统计 · " + d.ts_human;
 
   const pct = Math.min(100, Number(d.progress_pct) || 0);
   document.getElementById("bar").style.width = pct + "%";

@@ -52,6 +52,8 @@ python webui/monitor.py
 - **并发 workers**、**batch 数量**、**再跑 N 个**
 - **黑名单列表**、刷新；扩黑错误统计
 - 成功/失败 KPI、Worker 分布、日志尾部
+- **1h / 3h / 12h 时段成功率**（基于 `log/register_results.jsonl`）
+- 再跑 N 个、黑名单重置（基线熔断）
 
 ## 配置要点
 
