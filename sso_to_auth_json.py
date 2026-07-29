@@ -1,5 +1,7 @@
-import os
 #!/usr/bin/env python3
+from __future__ import annotations
+
+import os
 """
 SSO cookie → CPA / Grok2API auth.json 格式（纯 HTTP）
 
@@ -24,7 +26,6 @@ SSO cookie → CPA / Grok2API auth.json 格式（纯 HTTP）
   python3 sso_to_auth_json.py --sso sso_list.txt --cpa-auth-dir /path/to/auths \\
     --grok2api-auth-dir /path/to/g2a --proxy http://127.0.0.1:7890
 """
-from __future__ import annotations
 
 import argparse
 import base64
