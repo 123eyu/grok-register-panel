@@ -865,6 +865,9 @@ HTML = r"""<!DOCTYPE html>
   <div class="card panel" style="margin-top:0">
     <div class="section-head"><h2>控制</h2><span class="mono" id="ctrl-status" style="color:var(--muted);font-size:12px"></span></div>
     <div class="ctrl-row">
+      <div class="field" style="min-width:220px;flex:1"><label>面板 Token <span style="color:var(--muted);font-weight:400">(localStorage)</span></label>
+        <input id="monitor-token" type="password" autocomplete="off" placeholder="MONITOR_TOKEN" style="width:100%" onchange="getToken()" onblur="getToken()"/>
+      </div>
       <div class="field"><label>模式</label>
         <select id="mode">
           <option value="orch">Orch (run_until_100)</option>
@@ -976,8 +979,26 @@ function setMsg(id, text, cls) {
   el.textContent = text || "";
   el.className = "msg" + (cls ? " " + cls : "");
 }
+function getToken() {
+  const el = document.getElementById("monitor-token");
+  const fromInput = el ? (el.value || "").trim() : "";
+  const tok = (fromInput || window.MONITOR_TOKEN || localStorage.getItem("MONITOR_TOKEN") || "").trim();
+  if (fromInput) try { localStorage.setItem("MONITOR_TOKEN", fromInput); } catch (e) {}
+  return tok;
+}
+function loadTokenField() {
+  const el = document.getElementById("monitor-token");
+  if (!el) return;
+  if (!el.value) {
+    try { el.value = localStorage.getItem("MONITOR_TOKEN") || window.MONITOR_TOKEN || ""; } catch (e) {}
+  }
+}
 async function api(path, opts) {
-  const r = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+  opts = opts || {};
+  const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+  const tok = getToken();
+  if (tok) headers["Authorization"] = "Bearer " + tok;
+  const r = await fetch(path, Object.assign({}, opts, { headers }));
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.statusText || "request failed");
   if (j && j.ok === false) throw new Error(j.error || j.message || "request failed");
@@ -1043,12 +1064,7 @@ async function resetBlacklist(mode) {
   mode = mode || "baseline";
   if (!confirm(mode === "empty" ? "清空全部黑名单？" : "重置为基线熔断？")) return;
   try {
-    const headers = {"Content-Type": "application/json"};
-    const tok = (window.MONITOR_TOKEN || localStorage.getItem("MONITOR_TOKEN") || "").trim();
-    if (tok) headers["Authorization"] = "Bearer " + tok;
-    const r = await fetch("/api/blacklist/reset", { method: "POST", headers, body: JSON.stringify({ mode }) });
-    const j = await r.json();
-    if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
+    const j = await api("/api/blacklist/reset", { method: "POST", body: JSON.stringify({ mode }) });
     setMsg("bl-msg", j.message || "已重置", "ok");
     setTimeout(refresh, 500);
   } catch (e) { setMsg("bl-msg", String(e.message || e), "err"); }
@@ -1213,6 +1229,7 @@ function render(d) {
     + (d.log_size ? (d.log_size / 1024).toFixed(0) + " KB" : "")
     + " · blacklist " + ((d.blacklist && d.blacklist.count) || 0) + " ASN";
 }
+loadTokenField();
 refresh();
 setInterval(refresh, 2000);
 // full stats once on load

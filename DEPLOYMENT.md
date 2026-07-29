@@ -97,3 +97,16 @@ camoufox fetch
 **旧格式安装兼容**
 
 如果 `camoufox fetch` 安装的是旧格式（无 `.0.5_FLAG` 文件），程序会自动检测 `executable_path` 绕过版本检查，无需额外操作。确保 `config.json` 中 `active_version` 设为 `"."`。
+
+## Panel token (required for start/stop)
+
+```bash
+export MONITOR_TOKEN="$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")"
+export MONITOR_HOST=127.0.0.1
+export MONITOR_PORT=8787
+# optional: export PANEL_INCLUDE_TAIL=1
+python webui/monitor.py
+```
+
+In the browser, paste the same token into **面板 Token** (saved to localStorage).
+Without it, POST /api/start returns 401.

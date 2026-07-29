@@ -5,7 +5,7 @@
 Based on [AaronL725/grok-register](https://github.com/AaronL725/grok-register) (MIT).
 
 批量注册 Grok 账号（Camoufox）+ Web 监控面板  
-启停 / 并发 / ASN 黑名单 / 1h·3h·12h 成功率
+启停 / 并发 / ASN 黑名单 / 1h·3h·12h 成功率 / **Token 鉴权**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)
@@ -29,7 +29,8 @@ Based on [AaronL725/grok-register](https://github.com/AaronL725/grok-register) (
 | 出口预检 | 启动前解析出口 IP / ASN，命中黑名单直接换口 |
 | 风控早停 | `botFlagSource=1` + `policy=deny` 时跳过后续 OAuth，避免无效重试 |
 | 编排器 | 多轮 batch、风控满 N 暂停、ASN 自动扩黑 |
-| **Live 面板** | 启停、并发、再跑 N、黑名单、时段成功率、日志尾部 |
+| **Live 面板** | 启停、并发、再跑 N、黑名单、时段成功率；**写操作需 MONITOR_TOKEN** |
+| 日志脱敏 | 代理 `user:pass@` 与邮箱在 JSONL / 控制台脱敏；auth 文件 0600 |
 
 ## 架构示意
 
@@ -47,6 +48,7 @@ Based on [AaronL725/grok-register](https://github.com/AaronL725/grok-register) (
 ┌─────────────────┐
 │ webui/monitor   │  读 log/register_results.jsonl · CPA 目录
 │ :8787 Live 面板 │  启停 run_until_100 / run_batch_headless
+│ + Bearer token  │  浏览器填「面板 Token」→ localStorage
 └─────────────────┘
 ```
 
@@ -70,7 +72,7 @@ python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt
-camoufox fetch                     # 必须：下载浏览器引擎（约数百 MB）
+python -m camoufox fetch           # 必须：下载浏览器引擎（约数百 MB）
 
 cp config.example.json config.json
 # 编辑 config.json：邮箱、proxy、cpa_auth_dir 等
@@ -94,29 +96,58 @@ cp config.example.json config.json
 | `grok2api_auth_dir` | Grok2API 风格 auth 目录 |
 | `cpa_remote_url` / `cpa_management_key` | 远程 CPA Management API（可选） |
 
-环境变量：
+### 环境变量
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `CPA_AUTH_DIR` | `./cpa_auth` | 编排器统计 CPA 数量用 |
-| `MONITOR_HOST` | `127.0.0.1` | 面板绑定地址 |
+| `MONITOR_TOKEN` | （空） | **必设**：面板写接口鉴权；未设时 start/stop/control 一律 401 |
+| `MONITOR_HOST` | `127.0.0.1` | 面板绑定地址；**绑定失败不会回退到 `0.0.0.0`** |
 | `MONITOR_PORT` | `8787` | 面板端口 |
+| `PANEL_INCLUDE_TAIL` | `0` | `1` 时状态接口附带原始日志尾部（可能含敏感信息，默认关） |
+| `CPA_AUTH_DIR` | `./cpa_auth` | 编排器 / 面板统计 CPA 数量 |
 | `BATCH_LOG` | 自动发现最新 `log/batch*.log` | 面板跟踪的日志 |
+
+生成 token 示例：
+
+```bash
+# Linux / macOS
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+```
 
 ### 跑起来
 
 **A. Web 面板（推荐）**
 
 ```bash
-export MONITOR_HOST=0.0.0.0    # 仅本机可省略
+export MONITOR_TOKEN='你的长随机串'   # 必设，否则点启动会 401
+export MONITOR_HOST=127.0.0.1         # 仅本机；局域网请改成具体网卡 IP
 export MONITOR_PORT=8787
 export CPA_AUTH_DIR=./cpa_auth
+# 可选：需要页面里看原始日志尾时
+# export PANEL_INCLUDE_TAIL=1
 
 python webui/monitor.py
 # 浏览器打开 http://127.0.0.1:8787/
 ```
 
-面板上可设：模式（Orch / 单批）、workers、batch 数量、**再跑 N 个**、风控满 N 暂停 → 点启动。
+1. 页面顶部 **控制** 区找到 **面板 Token** 输入框  
+2. 填入与 `MONITOR_TOKEN` **相同**的字符串（自动写入 `localStorage`）  
+3. 设模式 / workers / batch 数量 / 再跑 N / 风控满 N → **启动**
+
+也可在控制台手动写入：
+
+```js
+localStorage.setItem('MONITOR_TOKEN', '你的长随机串')
+location.reload()
+```
+
+若未填 token 点启动，会看到：
+
+```text
+unauthorized: set MONITOR_TOKEN and pass Authorization: Bearer <token>
+```
+
+这是预期行为，不是注册链路崩溃。
 
 **B. 命令行单批（无头 Linux）**
 
@@ -144,6 +175,7 @@ python grok_register_ttk.py
 
 | 控件 | 作用 |
 |------|------|
+| **面板 Token** | 与环境变量 `MONITOR_TOKEN` 一致；启停/保存/重置黑名单必填 |
 | 模式 Orch | 跑 `run_until_100.py` 多轮直到目标 CPA |
 | 模式 单批 | 只跑一轮 `run_batch_headless` |
 | workers | 并发浏览器 |
@@ -151,9 +183,18 @@ python grok_register_ttk.py
 | **再跑 N 个** | 从**当前** CPA 再注册 N 个（目标已满时点启动不会秒退） |
 | 风控满 N 暂停 | 本轮注册风控达到 N 后停 batch 并分析 ASN |
 
+### 鉴权约定
+
+| 接口 | 鉴权 |
+|------|------|
+| `GET /` · `GET /api/health` · `GET /api/status` 等读接口 | 默认可匿名（便于看进度） |
+| `POST /api/start` · `/api/stop` · `/api/control` · `/api/blacklist/reset` | 必须 `Authorization: Bearer <MONITOR_TOKEN>` |
+
+前端 `api()` 会从 Token 输入框 / `localStorage.MONITOR_TOKEN` / `window.MONITOR_TOKEN` 自动带头。
+
 ### 时段成功率
 
-基于 `log/register_results.jsonl`：
+基于 `log/register_results.jsonl`（纯 JSON Lines，无横幅污染）：
 
 ```text
 成功率 = ok / (ok + fail + risk) × 100%
@@ -164,7 +205,7 @@ python grok_register_ttk.py
 
 - 下号前解析出口 ASN，命中则换 sticky / 代理口  
 - 编排器在风控累计到阈值后，对「几乎只有失败」的 ASN 扩黑  
-- 面板可 **刷新列表**；若实现了重置：回到基线熔断（如常见大户 ASN）  
+- 面板可 **刷新列表**；**重置** 为写操作，同样需要 Token  
 
 ## 工程实践备忘（非教程承诺）
 
@@ -184,23 +225,43 @@ python grok_register_ttk.py
 ├── grok_register_ttk.py       # GUI + CLI 主程序
 ├── register_flow.py           # 注册页流程 / Turnstile
 ├── browser_session.py         # 会话、出口探测、ASN 黑名单
-├── sso_to_auth_json.py        # SSO → OAuth / 写 CPA
+├── sso_to_auth_json.py        # SSO → OAuth / 写 CPA（auth 文件 0600）
 ├── camoufox_adapter.py
 ├── connectivity.py
-├── run_batch_headless.py      # 无头批量
+├── run_batch_headless.py      # 无头批量（包根 Path 后 chdir）
 ├── run_until_100.py           # 编排器
 ├── webui/
 │   ├── monitor.py             # Live 面板 HTTP 服务
-│   └── blacklist_ops.py       # 黑名单读写 / 重置
+│   ├── security_utils.py      # redact / token 校验
+│   └── blacklist_ops.py       # 黑名单读写 / 重置（包相对路径）
 ├── email_providers/
+├── tests/                     # 结构 / 脱敏 / chdir 冒烟
 ├── scripts/                   # xvfb 辅助脚本
 ├── config.example.json
 ├── proxies.example.txt
 ├── requirements.txt
-└── DEPLOYMENT.md
+├── DEPLOYMENT.md
+├── LICENSE · NOTICE
+└── README.md
+```
+
+## 自检
+
+```bash
+# 无需 pytest；直接跑
+python3 tests/test_security_utils.py
+python3 tests/test_panel_structure.py
+python3 tests/test_no_live_hardcode.py
+python3 tests/test_batch_chdir_import.py
 ```
 
 ## 常见问题
+
+**Q: 点启动报 `unauthorized: set MONITOR_TOKEN...`？**  
+A: 服务端已启用写接口鉴权。启动 monitor 时 `export MONITOR_TOKEN=...`，浏览器 **面板 Token** 填同一串（或 `localStorage.setItem`）。硬刷新后再点启动。
+
+**Q: 日志尾部显示 `raw log tail disabled`？**  
+A: 默认关闭防泄密。需要时 `export PANEL_INCLUDE_TAIL=1` 后重启 `monitor.py`。
 
 **Q: 点启动立刻结束？**  
 A: CPA 已达旧目标。面板填大 **再跑 N 个** 再启动；编排器用 `add_count` 抬目标。
@@ -211,6 +272,9 @@ A: 代理挂了 / 流量耗尽 / dialer 下游失败。先 `curl -x http://127.0
 **Q: 邮箱 API 401？**  
 A: 与代理无关，检查 `config.json` 里对应 provider 的 key / auth_mode。
 
+**Q: `Address already in use` / 面板打不开？**  
+A: 8787 被其它进程占用（例如同机其它服务）。换 `MONITOR_PORT`，或先释放端口。绑定失败**不会**自动改绑 `0.0.0.0`。
+
 **Q: Windows？**  
 A: 主要在 macOS 与无界面 Linux 验证；Windows 需自备显示/依赖，欢迎 PR。
 
@@ -219,34 +283,36 @@ A: 看 `log/orch100-stdout.log` 与最新 `log/batch-*.log`；欢迎提 issue / 
 
 ## 安全
 
-- **不要提交** `config.json`、`accounts/`、`cpa_auth/`、`proxies.txt`、真实 stickies  
+- **必须**设置 `MONITOR_TOKEN`；不要把 token 提交进仓库或贴进公开 issue  
+- **不要提交** `config.json`、`accounts/`、`cpa_auth/`、`proxies.txt`、真实 stickies、`log/monitor.token`  
 - `.gitignore` 已忽略上述路径  
-- 开源前自查：`grep -R api_key --include='*.json' .`
+- 代理凭据与邮箱在结果 JSONL / 控制台走 `redact_proxy` / `mask_email`  
+- 新写 auth 文件权限 0600、父目录 0700（`sso_to_auth_json`）  
+- 开源前自查：`grep -R api_key --include='*.json' .`（勿提交真实配置）  
+- 面板默认**不**回传原始日志尾；仅本机调试可开 `PANEL_INCLUDE_TAIL=1`
+
+## 更新记录（摘录）
+
+| 提交方向 | 内容 |
+|----------|------|
+| 面板鉴权 | `MONITOR_TOKEN` + Bearer；UI 内 Token 输入；CORS 不开放 `*` |
+| 绑定安全 | 失败不回退 `0.0.0.0`；默认 `PANEL_INCLUDE_TAIL=0` |
+| 脱敏 | `webui/security_utils.py`；JSONL / 日志去凭据 |
+| 路径 | `run_batch_headless` / blacklist 使用包相对 ROOT，无硬编码机器路径 |
+| 稳定性 | `from __future__` 置顶；`Path` 先于 `chdir`；workers DOM id 拆分 |
+| 结果流 | `register_results.jsonl` 仅 JSON 行 |
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — 见 [NOTICE](NOTICE) 对 AaronL725/grok-register 的归属说明。
 
 ## 致谢
 
 - [Camoufox](https://camoufox.com/)
 - [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 等下游生态
+- 上游 [AaronL725/grok-register](https://github.com/AaronL725/grok-register)
 - 社区里分享风控字段与工程经验的各位
 
 ---
 
 Star 鼓励一下 → https://github.com/lij768423-svg/grok-register-panel
-
-
-## Panel security
-
-```bash
-export MONITOR_TOKEN='long-random-secret'
-export MONITOR_HOST=127.0.0.1   # do not use 0.0.0.0 fallback
-python webui/monitor.py
-# browser: localStorage.setItem('MONITOR_TOKEN', 'long-random-secret')
-```
-
-Write APIs (`/api/start`, `/api/stop`, `/api/control`, …) require
-`Authorization: Bearer <MONITOR_TOKEN>`. Raw log tails are off unless
-`PANEL_INCLUDE_TAIL=1`.
