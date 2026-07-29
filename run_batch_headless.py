@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-import sys, types, os
+from pathlib import Path
+import os
+
 os.chdir(str(Path(__file__).resolve().parent))
+
+import sys, types, os
 sys.path.insert(0, ".")
 # stub tkinter for headless server
 try:
