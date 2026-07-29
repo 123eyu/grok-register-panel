@@ -1,6 +1,0 @@
-no-token 401 {"ok": false, "error": "unauthorized: set MONITOR_TOKEN and pass Authorization: Bearer <token>"}
-token 200 {"ok": true, "pid": 0, "mode": "batch", "message": "stub"}
-tail=['(raw log tail disabled; set PANEL_INCLUDE_TAIL=1)']
-bl 200 count=17
-live_mtime=1785317732.7713177
-SELFUSE_OK
