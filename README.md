@@ -33,6 +33,21 @@ Based on [AaronL725/grok-register](https://github.com/AaronL725/grok-register) (
 | 失败恢复 | 待处理 SSO / accounts 文本补录 CPA，跳过已有账号，成功后自动出队 |
 | 安全存储 | 代理、账号、SSO、日志、auth 与运行状态默认使用 owner-only 权限 |
 
+## 界面预览
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png">
+  <img alt="Grok Register 注册控制台" src="docs/screenshots/dashboard-light.png">
+</picture>
+
+控制台集中展示任务参数、批次进度、时段成功率、账号补录和黑名单状态；图片会跟随 GitHub 的深浅主题自动切换。
+
+### 问题与使用
+
+![问题与使用界面](docs/screenshots/usage-and-troubleshooting.png)
+
+常见配置、启动步骤和故障排查集中在独立界面内，可从控制台顶部随时切换。
+
 ## 架构示意
 
 ```text
