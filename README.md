@@ -94,9 +94,13 @@ cp config.example.json config.json
 
 | 字段 | 说明 |
 |------|------|
-| `email_provider` | `cloudflare` / `duckmail` / `yyds` / `mailnest` / … |
+| `email_provider` | `cloudflare` / `duckmail` / `yyds` / `mailnest` / `cloudmail` / `moemail` |
 | `defaultDomains` | 临时邮域名（如二级 CF 域） |
 | `cloudflare_*` / `duckmail_*` 等 | 对应邮箱 API |
+| `moemail_api_base` | MoeMail 站点根 URL，例如 `https://mail.example.com` |
+| `moemail_api_key` | MoeMail OpenAPI 的 `X-API-Key` |
+| `moemail_domain` | 可选固定域名；留空时自动读取 `/api/config` 的可用域名 |
+| `moemail_expiry_ms` | `3600000` / `86400000` / `604800000` / `0`，分别为 1 小时、1 天、7 天、永久 |
 | `proxy` | 默认 HTTP 代理，如 `http://127.0.0.1:7890` |
 | `proxies.txt` | 可选；多行代理，多 worker 轮换端口 |
 | `register_workers` | 并发浏览器数（建议先 2～3） |
