@@ -121,6 +121,8 @@ cp config.example.json config.json
 | `CPA_AUTH_DIR` | `./cpa_auth` | 编排器 / 面板统计 CPA 数量 |
 | `BATCH_LOG` | 自动发现最新 `log/batch*.log` | 面板跟踪的日志 |
 | `BLACKLIST_STATE_FILE` | `./log/blacklist_state.json` | 运行时 ASN 黑名单状态 |
+| `GROK_BATCH_IDLE_TIMEOUT` | `360` | batch 子进程连续无输出多少秒后自动重建（最小 60 秒） |
+| `GROK_BATCH_MAX_RESTARTS` | `8` | 单批发生驱动崩溃或卡死时最多自动恢复次数 |
 
 生成 token 示例：
 
@@ -170,6 +172,10 @@ unauthorized: set MONITOR_TOKEN and pass Authorization: Bearer <token>
 xvfb-run -a python -u run_batch_headless.py 20 3
 #                        数量↑        并发↑
 ```
+
+单批由独立监督进程运行。Playwright/Camoufox 驱动崩溃，或连续超过
+`GROK_BATCH_IDLE_TIMEOUT` 没有输出时，监督进程会结束故障子进程并按原子进度文件
+继续剩余数量；已经写入的账号、SSO 和 CPA 文件不会回滚。
 
 **C. 编排器**
 

@@ -45,6 +45,7 @@ from email_providers.common import pick_list_payload as _pick_list
 import browser_session as _bs
 import register_flow as _rf
 import connectivity as _conn
+from batch_supervisor import mark_slot_completed
 from secure_files import (
     append_private_text,
     atomic_write_json,
@@ -3346,6 +3347,7 @@ def run_registration_cli(count):
                     if not booted:
                         local_fail = n
                         local_fail_stats[FAIL_BROWSER] = local_fail_stats.get(FAIL_BROWSER, 0) + n
+                        mark_slot_completed(n)
                         cli_log(f"[W{wid+1}] [-] 浏览器启动失败，{n} 个任务均记为失败: {last_boot}")
                         record_register_result(
                             "fail",
@@ -3426,6 +3428,7 @@ def run_registration_cli(count):
                             bot_flag=0,
                             log_callback=lambda m: cli_log(f"[W{wid+1}] {m}"),
                         )
+                        mark_slot_completed()
                         # 每成功 2 个换 sticky，降低同 IP 密度（对齐 ~4 分钟窗口）
                         if local_success % 2 == 0:
                             rotate_idx += 1
@@ -3446,6 +3449,7 @@ def run_registration_cli(count):
                             worker=f"W{wid+1}",
                             log_callback=lambda m: cli_log(f"[W{wid+1}] {m}"),
                         )
+                        mark_slot_completed()
                     except AccountRetryNeeded as exc:
                         retry += 1
                         if retry > max_slot_retry:
@@ -3455,6 +3459,7 @@ def run_registration_cli(count):
                             i += 1
                             retry = 0
                             cli_log(f"[W{wid+1}] [-] 卡住跳过: {exc}")
+                            mark_slot_completed()
                     except Exception as exc:
                         msg = str(exc)
                         blank_ui = (
@@ -3522,6 +3527,7 @@ def run_registration_cli(count):
                                 risk=_rk,
                                 log_callback=lambda m: cli_log(f"[W{wid+1}] {m}"),
                             )
+                        mark_slot_completed()
                         if kind == FAIL_RISK:
                             rotate_idx += 1
                             cli_log(f"[W{wid+1}] [*] 风控拒绝，切换 sticky #{rotate_idx}")
@@ -3610,6 +3616,7 @@ def run_registration_cli(count):
         except Exception as boot_exc:
             fail_count += count
             fail_stats[FAIL_BROWSER] = fail_stats.get(FAIL_BROWSER, 0) + count
+            mark_slot_completed(count)
             cli_log(f"[-] 浏览器启动失败，{count} 个任务均记为失败: {boot_exc}")
             return
         cli_log("[*] 浏览器已启动")
@@ -3701,6 +3708,7 @@ def run_registration_cli(count):
                 else:
                     cli_log(f"[+] 注册成功（SSO 已保存，CPA 入库失败）: {email}")
                 cli_log(f"[*] 当前统计: 成功 {success_count} | 失败 {fail_count}")
+                mark_slot_completed()
                 if success_count > 0 and success_count % MEMORY_CLEANUP_INTERVAL == 0 and i < count:
                     cleanup_runtime_memory(
                         log_callback=cli_log,
@@ -3715,6 +3723,7 @@ def run_registration_cli(count):
                 i += 1
                 cli_log(f"[-] 邮箱域名被 xAI 拒绝 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
                 cli_log("[!] 请更换邮箱提供商或域名（如 Cloudflare 自建域 / MailNest），公共临时域常被拉黑")
+                mark_slot_completed()
             except AccountRetryNeeded as exc:
                 retry_count_for_slot += 1
                 if retry_count_for_slot <= max_slot_retry:
@@ -3726,11 +3735,13 @@ def run_registration_cli(count):
                     retry_count_for_slot = 0
                     i += 1
                     cli_log(f"[-] 当前账号已达到最大重试次数，跳过 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
+                    mark_slot_completed()
             except Exception as exc:
                 kind = _cli_record_failure(exc)
                 retry_count_for_slot = 0
                 i += 1
                 cli_log(f"[-] 注册失败 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
+                mark_slot_completed()
             if controller.should_stop():
                 break
             # 每轮结束只关浏览器，不立刻再开。

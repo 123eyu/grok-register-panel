@@ -15,6 +15,7 @@ tests=(
   tests/test_panel_structure.py
   tests/test_no_live_hardcode.py
   tests/test_batch_chdir_import.py
+  tests/test_batch_supervisor.py
 )
 
 for test_file in "${tests[@]}"; do
@@ -29,6 +30,7 @@ done
   connectivity.py \
   grok_register_ttk.py \
   register_flow.py \
+  batch_supervisor.py \
   run_batch_headless.py \
   run_until_100.py \
   sso_to_auth_json.py

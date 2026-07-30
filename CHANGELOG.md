@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Supervise headless batches and automatically resume remaining task slots after a Playwright/Camoufox driver crash or stall.
+- Persist batch slot progress atomically so completed accounts are not repeated during recovery.
+
 ## 0.2.0 - 2026-07-30
 
 - Redesign the live panel with responsive light and dark themes.

@@ -4,6 +4,7 @@
 - [ ] `scripts/run_tests.sh` passes from a clean clone.
 - [ ] `python -m pip check` passes in the deployment virtual environment.
 - [ ] `python -m camoufox version` reports an installed browser engine.
+- [ ] The batch supervisor test restarts a simulated `_getChildFrames` driver crash and resumes only remaining slots.
 - [ ] `config.json`, all `proxies*.txt` / `stickies*.txt`, `accounts/`, auth directories, and `log/` are owner-only.
 - [ ] `MONITOR_TOKEN` is set and anonymous operational API requests return 401.
 - [ ] If `PANEL_INCLUDE_TAIL=1`, operational APIs require authentication and returned log lines pass the redaction tests.
