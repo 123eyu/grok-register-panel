@@ -8,6 +8,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 tests=(
   tests/test_security_utils.py
   tests/test_extract_code.py
+  tests/test_moemail.py
   tests/test_runtime_security.py
   tests/test_sso_recovery.py
   tests/test_monitor_http.py
