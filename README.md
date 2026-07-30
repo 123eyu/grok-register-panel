@@ -351,6 +351,10 @@ A: 在控制台使用“账号补录”。待处理模式成功后自动出队�
 | 稳定性 | `from __future__` 置顶；`Path` 先于 `chdir`；workers DOM id 拆分 |
 | 结果流 | `register_results.jsonl` 仅 JSON 行 |
 
+## 友情链接
+
+- [LINUX DO](https://linux.do) — 新的理想型社区
+
 ## License
 
 [MIT](LICENSE) — 见 [NOTICE](NOTICE) 对 AaronL725/grok-register 的归属说明。面板内嵌 Geist 字体使用 [SIL OFL 1.1](LICENSES/OFL-1.1-Geist.txt)。
