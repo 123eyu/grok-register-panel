@@ -42,12 +42,6 @@ Based on [AaronL725/grok-register](https://github.com/AaronL725/grok-register) (
 
 控制台集中展示任务参数、批次进度、时段成功率、账号补录和黑名单状态；图片会跟随 GitHub 的深浅主题自动切换。
 
-### 问题与使用
-
-![问题与使用界面](docs/screenshots/usage-and-troubleshooting.png)
-
-常见配置、启动步骤和故障排查集中在独立界面内，可从控制台顶部随时切换。
-
 ## 架构示意
 
 ```text
