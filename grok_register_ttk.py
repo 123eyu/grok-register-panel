@@ -44,6 +44,14 @@ from email_providers.common import pick_list_payload as _pick_list
 import browser_session as _bs
 import register_flow as _rf
 import connectivity as _conn
+from secure_files import (
+    append_private_text,
+    atomic_write_json,
+    atomic_write_text,
+    create_private_text,
+    ensure_private_dir,
+    exclusive_file_lock,
+)
 from browser_session import (
 
     browser,
@@ -94,7 +102,7 @@ _session_log_lock = threading.Lock()
 
 def ensure_accounts_dir():
     """确保 accounts/ 存在，返回目录绝对路径。"""
-    os.makedirs(ACCOUNTS_DIR, exist_ok=True)
+    ensure_private_dir(ACCOUNTS_DIR)
     return ACCOUNTS_DIR
 
 
@@ -129,15 +137,14 @@ def initialize_session_log(log_dir=None, now=None):
             return _session_log_path
 
         target_dir = log_dir or os.path.join(APP_DIR, "log")
-        os.makedirs(target_dir, exist_ok=True)
+        ensure_private_dir(target_dir)
         timestamp = (now or datetime.datetime.now()).strftime("%Y%m%d_%H%M%S")
         suffix = 1
         while True:
             suffix_text = "" if suffix == 1 else f"_{suffix}"
             path = os.path.join(target_dir, f"app_{timestamp}{suffix_text}.log")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n"):
-                    pass
+                create_private_text(path)
             except FileExistsError:
                 suffix += 1
                 continue
@@ -151,8 +158,7 @@ def append_session_log(line):
         return
     try:
         with _session_log_lock:
-            with open(path, "a", encoding="utf-8", newline="\n") as log_file:
-                log_file.write(f"{line}\n")
+            append_private_text(path, f"{line}\n")
     except OSError:
         # 持久化日志失败不应中断正在进行的注册任务。
         pass
@@ -361,7 +367,7 @@ def record_register_result(
     }
     line = (
         f"[结果] status={status} ip={exit_ip or '?'} port={port or '?'} "
-        f"email={email or '-'} kind={kind or '-'} bot={bot_flag if bot_flag is not None else '-'} "
+        f"email={mask_email(email) if email else '-'} kind={kind or '-'} bot={bot_flag if bot_flag is not None else '-'} "
         f"risk={risk if risk is not None else '-'}"
     )
     if log_callback:
@@ -370,10 +376,12 @@ def record_register_result(
         except Exception:
             pass
     try:
-        os.makedirs(os.path.dirname(_RESULT_LOG_PATH), exist_ok=True)
+        ensure_private_dir(os.path.dirname(_RESULT_LOG_PATH))
         with _RESULT_LOG_LOCK:
-            with open(_RESULT_LOG_PATH, "a", encoding="utf-8") as f:
-                f.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+            append_private_text(
+                _RESULT_LOG_PATH,
+                _json.dumps(rec, ensure_ascii=False) + "\n",
+            )
     except Exception as exc:
         if log_callback:
             try:
@@ -473,8 +481,7 @@ def parse_account_interval() -> float:
 
 def save_config():
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+        atomic_write_json(CONFIG_FILE, config)
     except Exception as e:
         print(f"保存配置失败: {e}")
 
@@ -761,10 +768,20 @@ def _append_sso_pending(email: str, sso: str, log_callback=None):
     try:
         path = accounts_side_file("sso_pending.txt")
         line = f"{email}----{sso}\n" if email else f"{sso}\n"
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+        with exclusive_file_lock(path + ".lock"):
+            duplicate = False
+            try:
+                for existing in Path(path).read_text(encoding="utf-8").splitlines():
+                    if existing.strip().split("----")[-1].removeprefix("sso=").strip() == sso:
+                        duplicate = True
+                        break
+            except OSError:
+                pass
+            if not duplicate:
+                append_private_text(path, line)
         if log_callback:
-            log_callback(f"[CPA] 已追加待重转 SSO → {path}")
+            action = "已存在" if duplicate else "已追加"
+            log_callback(f"[CPA] 待重转 SSO {action} → {path}")
     except Exception as exc:
         if log_callback:
             log_callback(f"[CPA] 写入 sso_pending 失败: {exc}")
@@ -775,8 +792,7 @@ def _append_sso_risk_rejected(email: str, sso: str, details: str, log_callback=N
     try:
         path = accounts_side_file("sso_risk_rejected.txt")
         safe_details = re.sub(r"[\r\n\t]+", " ", str(details or "")).strip()
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(f"{email}----{sso}----{safe_details}\n")
+        append_private_text(path, f"{email}----{sso}----{safe_details}\n")
         if log_callback:
             log_callback(f"[CPA] 已保存注册风控拒绝记录 → {path}")
     except Exception as exc:
@@ -2879,12 +2895,10 @@ class GrokRegisterGUI:
                         wlog(f"[*] 邮箱: {email}")
                         wlog(f"[Debug] 邮箱 token 已获取 (len={len(str(dev_token or ''))})")
                         try:
-                            with open(
+                            append_private_text(
                                 accounts_side_file("mail_credentials.txt"),
-                                "a",
-                                encoding="utf-8",
-                            ) as f:
-                                f.write(f"{email}\t{dev_token}\n")
+                                f"{email}\t{dev_token}\n",
+                            )
                         except Exception:
                             pass
                         wlog("[*] 3. 拉取验证码")
@@ -2938,11 +2952,9 @@ class GrokRegisterGUI:
                         alock = getattr(self, "_accounts_lock", None)
                         if alock:
                             with alock:
-                                with open(email_file, "w", encoding="utf-8") as f:
-                                    f.write(line)
+                                atomic_write_text(email_file, line)
                         else:
-                            with open(email_file, "w", encoding="utf-8") as f:
-                                f.write(line)
+                            atomic_write_text(email_file, line)
                     except Exception as file_exc:
                         wlog(f"[!] 保存账号文件失败，当前账号不计为成功: {file_exc}")
                         _append_sso_pending(email, sso, log_callback=wlog)
@@ -3000,24 +3012,24 @@ class GrokRegisterGUI:
                     wlog(f"[-] 注册失败 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
                 finally:
                     self.update_stats()
+                if self.should_stop():
+                    break
+                # 每轮结束只关浏览器，不立刻再开。
+                # 下一轮 open_signup_page 会按需启动并导航到官网，避免空浏览器残留。
+                if i >= count:
+                    continue
+                # 账号间随机间隔
+                wait_sec = parse_account_interval()
+                if wait_sec > 0:
+                    wlog(f"[*] 下一个账号前等待 {wait_sec:.0f} 秒...")
+                    sleep_with_cancel(wait_sec, self.should_stop)
+                try:
+                    stop_browser()
+                    time.sleep(0.5)
+                except Exception as close_exc:
                     if self.should_stop():
                         break
-                    # 每轮结束只关浏览器，不立刻再开。
-                    # 下一轮 open_signup_page 会按需启动并导航到官网，避免空浏览器残留。
-                    if i >= count:
-                        continue
-                    # 账号间随机间隔
-                    wait_sec = parse_account_interval()
-                    if wait_sec > 0:
-                        wlog(f"[*] 下一个账号前等待 {wait_sec:.0f} 秒...")
-                        sleep_with_cancel(wait_sec, self.should_stop)
-                    try:
-                        stop_browser()
-                        time.sleep(0.5)
-                    except Exception as close_exc:
-                        if self.should_stop():
-                            break
-                        wlog(f"[Debug] 轮次关闭浏览器失败: {close_exc}")
+                    wlog(f"[Debug] 轮次关闭浏览器失败: {close_exc}")
         except RegistrationCancelled:
             wlog("[!] 注册被用户停止")
         except Exception as exc:
@@ -3206,8 +3218,7 @@ def run_registration_cli(count):
                             with accounts_lock:
                                 # 以邮箱命名单独保存
                                 email_file = account_file_for_email(email)
-                                with open(email_file, "w", encoding="utf-8") as f:
-                                    f.write(line)
+                                atomic_write_text(email_file, line)
                         except Exception as file_exc:
                             cli_log(
                                 f"[W{wid+1}] [!] 保存账号文件失败，当前账号不计为成功: {file_exc}"
@@ -3447,12 +3458,10 @@ def run_registration_cli(count):
                     cli_log(f"[*] 邮箱: {email}")
                     cli_log(f"[Debug] 邮箱 token 已获取 (len={len(str(dev_token or ''))})")
                     try:
-                        with open(
+                        append_private_text(
                             accounts_side_file("mail_credentials.txt"),
-                            "a",
-                            encoding="utf-8",
-                        ) as f:
-                            f.write(f"{email}\t{dev_token}\n")
+                            f"{email}\t{dev_token}\n",
+                        )
                     except Exception:
                         pass
                     cli_log("[*] 3. 拉取验证码")
@@ -3500,8 +3509,7 @@ def run_registration_cli(count):
                     line = f"{email}----{profile.get('password','')}----{sso}\n"
                     # 以邮箱命名单独保存
                     email_file = account_file_for_email(email)
-                    with open(email_file, "w", encoding="utf-8") as f:
-                        f.write(line)
+                    atomic_write_text(email_file, line)
                 except Exception as file_exc:
                     cli_log(f"[!] 保存账号文件失败，当前账号不计为成功: {file_exc}")
                     _append_sso_pending(email, sso, log_callback=cli_log)
@@ -3545,31 +3553,30 @@ def run_registration_cli(count):
                 retry_count_for_slot = 0
                 i += 1
                 cli_log(f"[-] 注册失败 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
-            finally:
+            if controller.should_stop():
+                break
+            # 每轮结束只关浏览器，不立刻再开。
+            # 下一轮 open_signup_page 会按需启动并导航到官网，避免空浏览器残留。
+            if i >= count:
+                continue
+            # 账号间随机间隔
+            wait_sec = parse_account_interval()
+            if wait_sec > 0:
+                cli_log(f"[*] 下一个账号前等待 {wait_sec:.0f} 秒...")
+                _sleep_cancelable(wait_sec, controller.should_stop)
+            try:
+                stop_browser()
+                time.sleep(0.5)
+            except KeyboardInterrupt:
+                controller.stop()
+                cli_log("[!] 收到 Ctrl+C，正在停止（再按一次强制中断）")
+                break
+            except RegistrationCancelled:
+                break
+            except Exception as close_exc:
                 if controller.should_stop():
                     break
-                # 每轮结束只关浏览器，不立刻再开。
-                # 下一轮 open_signup_page 会按需启动并导航到官网，避免空浏览器残留。
-                if i >= count:
-                    continue
-                # 账号间随机间隔
-                wait_sec = parse_account_interval()
-                if wait_sec > 0:
-                    cli_log(f"[*] 下一个账号前等待 {wait_sec:.0f} 秒...")
-                    _sleep_cancelable(wait_sec, controller.should_stop)
-                try:
-                    stop_browser()
-                    time.sleep(0.5)
-                except KeyboardInterrupt:
-                    controller.stop()
-                    cli_log("[!] 收到 Ctrl+C，正在停止（再按一次强制中断）")
-                    break
-                except RegistrationCancelled:
-                    break
-                except Exception as close_exc:
-                    if controller.should_stop():
-                        break
-                    cli_log(f"[Debug] 轮次关闭浏览器失败: {close_exc}")
+                cli_log(f"[Debug] 轮次关闭浏览器失败: {close_exc}")
     except KeyboardInterrupt:
         controller.stop()
         cli_log("[!] 收到 Ctrl+C，正在停止并清理")

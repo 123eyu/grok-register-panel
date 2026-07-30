@@ -37,6 +37,7 @@ for k in ("http_proxy","https_proxy","HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","all
 
 import json, time
 from pathlib import Path
+from secure_files import atomic_write_json
 import connectivity
 import grok_register_ttk as app
 connectivity.has_blocking_xai_failure = lambda r: False
@@ -46,7 +47,7 @@ workers=max(1,min(workers,24,count))
 cfg=json.loads(Path("config.json").read_text())
 cfg["register_count"]=count
 cfg["register_workers"]=workers
-Path("config.json").write_text(json.dumps(cfg,ensure_ascii=False,indent=2)+"\n")
+atomic_write_json("config.json", cfg)
 print(f"[env] DISPLAY={os.environ.get('DISPLAY')!r} time={time.strftime('%F %T')}", flush=True)
 app.load_config()
 app._wire_runtime_modules()
