@@ -38,6 +38,11 @@ try:
         update_domain,
         update_settings as update_email_domain_settings,
     )
+    from webui.email_provider_store import (
+        read_email_provider_config,
+        save_email_provider_config,
+        test_email_provider_config,
+    )
     from webui.process_utils import (
         find_managed_processes,
         terminate_managed_processes,
@@ -68,6 +73,11 @@ except ImportError:  # running as script from webui/
         reset_domain,
         update_domain,
         update_settings as update_email_domain_settings,
+    )
+    from email_provider_store import (  # type: ignore
+        read_email_provider_config,
+        save_email_provider_config,
+        test_email_provider_config,
     )
     from process_utils import (  # type: ignore
         find_managed_processes,
@@ -1313,6 +1323,71 @@ HTML = r"""<!DOCTYPE html>
     border-bottom: 1px solid var(--border);
   }
   .domain-view-subtitle { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+  .mail-source-kicker {
+    margin-bottom: 5px;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 760;
+    text-transform: uppercase;
+  }
+  .mail-provider-panel {
+    padding: 18px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-raised);
+  }
+  .mail-provider-toolbar {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) auto;
+    align-items: end;
+    gap: 18px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mail-provider-toolbar .field { max-width: 520px; }
+  .mail-provider-status { display: flex; align-items: center; gap: 8px; min-height: 38px; }
+  .mail-provider-status-label { color: var(--muted); font-size: 11px; }
+  .mail-provider-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 16px;
+    padding: 18px 0;
+  }
+  .mail-provider-fields .field { min-width: 0; gap: 5px; }
+  .mail-provider-fields input,
+  .mail-provider-fields select { width: 100%; min-height: 40px; }
+  .mail-secret-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+  .mail-secret-wrap button { min-width: 54px; min-height: 40px; padding-inline: 10px; font-size: 11px; }
+  .mail-secret-wrap.pending-clear input { border-color: var(--warn); }
+  .mail-secret-note { min-height: 14px; color: var(--muted); font-size: 10px; }
+  .mail-secret-note.warn { color: var(--warn); }
+  .mail-provider-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .mail-provider-actions .mail-provider-meta { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .mail-provider-result { min-height: 18px; margin-top: 10px; }
+  .domain-advanced { margin-top: 20px; border-top: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
+  .domain-advanced > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 52px;
+    padding: 10px 2px;
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+  }
+  .domain-advanced > summary::-webkit-details-marker { display: none; }
+  .domain-advanced > summary::after { content: "+"; color: var(--accent); font-family: "Geist Mono", monospace; font-size: 18px; }
+  .domain-advanced[open] > summary::after { content: "-"; }
+  .domain-advanced-title { font-size: 13px; font-weight: 680; }
+  .domain-advanced-meta { color: var(--muted); font-size: 11px; font-weight: 450; }
+  .domain-advanced-body { padding: 4px 0 24px; }
+  .domain-advanced-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .domain-summary {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1521,6 +1596,7 @@ HTML = r"""<!DOCTYPE html>
     .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .three { grid-template-columns: minmax(0, 1fr); }
     .help-guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mail-provider-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 760px) {
     .topbar { width: calc(100% - 32px); height: 60px; align-items: center; flex-direction: row; gap: 10px; }
@@ -1566,6 +1642,14 @@ HTML = r"""<!DOCTYPE html>
     .domain-view { inset-block-start: 60px; }
     .domain-view-inner { width: calc(100% - 24px); padding: 20px 0 34px; }
     .domain-view-heading { align-items: flex-start; flex-direction: column; margin-bottom: 16px; padding-bottom: 16px; }
+    .mail-provider-panel { padding: 14px; }
+    .mail-provider-toolbar { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .mail-provider-toolbar .field { max-width: none; }
+    .mail-provider-fields { grid-template-columns: minmax(0, 1fr); }
+    .mail-provider-actions { align-items: stretch; flex-wrap: wrap; }
+    .mail-provider-actions button { flex: 1 1 0; }
+    .mail-provider-actions .mail-provider-meta { width: 100%; margin-left: 0; }
+    .domain-advanced-head { align-items: flex-start; flex-direction: column; }
     .domain-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .domain-summary-item:last-child { grid-column: 1 / -1; }
     .domain-import { grid-template-columns: minmax(0, 1fr); }
@@ -1660,8 +1744,8 @@ HTML = r"""<!DOCTYPE html>
       <h1>GrokRegister</h1>
     </div>
     <div class="status-cluster">
-      <button type="button" class="view-switch" id="domain-view-toggle" aria-label="打开邮箱域名池" title="邮箱域名池" aria-controls="domain-view" aria-expanded="false" data-active="false" onclick="toggleDomainView()">
-        <span id="domain-view-label" aria-hidden="true">邮箱池</span>
+      <button type="button" class="view-switch" id="domain-view-toggle" aria-label="打开邮箱服务" title="邮箱服务" aria-controls="domain-view" aria-expanded="false" data-active="false" onclick="toggleDomainView()">
+        <span id="domain-view-label" aria-hidden="true">邮箱服务</span>
       </button>
       <button type="button" class="view-switch" id="proxy-view-toggle" aria-label="打开代理池" title="代理池" aria-controls="proxy-view" aria-expanded="false" data-active="false" onclick="toggleProxyView()">
         <span id="proxy-view-label" aria-hidden="true">代理池</span>
@@ -1694,7 +1778,7 @@ HTML = r"""<!DOCTYPE html>
     <div class="control-grid">
       <div class="field field-token">
         <label for="monitor-token">访问令牌</label>
-        <input id="monitor-token" type="password" autocomplete="off" placeholder="MONITOR_TOKEN" onchange="getToken(); refresh(); refreshRecovery(); refreshProxies(); refreshEmailDomains()" onblur="getToken()"/>
+        <input id="monitor-token" type="password" autocomplete="off" placeholder="MONITOR_TOKEN" onchange="getToken(); refresh(); refreshRecovery(); refreshProxies(); refreshEmailProvider(); refreshEmailDomains()" onblur="getToken()"/>
       </div>
       <div class="field field-mode">
         <label for="mode">运行模式</label>
@@ -1799,9 +1883,9 @@ HTML = r"""<!DOCTYPE html>
             <summary>邮箱 API 返回 401 或请求超时</summary>
             <div class="faq-answer">401 先检查对应邮箱服务的 key 和 <code>auth_mode</code>。访问 workers.dev 超时时，在配置中显式填写代理，不要只依赖桌面进程可能无法继承的 HTTP_PROXY 环境变量。</div>
           </details>
-          <details class="faq-item" data-faq-item data-search="邮箱池 域名 子域名 拉黑 拒绝 provider 阈值 活跃数">
-            <summary>如何使用自有邮箱域名池</summary>
-            <div class="faq-answer">打开顶部“邮箱池”，选择 Cloudflare、CloudMail、MoeMail 或 YYDS 后逐行导入自有域名。只有 xAI 明确拒绝才会累计并按阈值拉黑，邮箱 API 和验证码异常不会处罚域名；可在这里启停、重置和限制每个服务商的活跃域名数。</div>
+          <details class="faq-item" data-faq-item data-search="邮箱服务 provider cloudflare duckmail yyds mailnest cloudmail moemail api 测试 域名轮换">
+            <summary>如何配置邮箱服务</summary>
+            <div class="faq-answer">打开顶部“邮箱服务”，选择当前使用的服务商后填写对应 API 配置，保存并测试连通性。自有域名轮换位于同页高级设置；只有 xAI 明确拒绝域名才累计，邮箱 API 和验证码异常不会处罚域名。</div>
           </details>
           <details class="faq-item" data-faq-item data-search="黑名单 asn 清除 重置 baseline 风控 出口">
             <summary>黑名单有什么作用，可以清除吗</summary>
@@ -1881,69 +1965,107 @@ HTML = r"""<!DOCTYPE html>
     <div class="domain-view-inner">
       <div class="domain-view-heading">
         <div>
-          <div class="page-title" id="domain-view-title">邮箱域名池</div>
-          <p class="domain-view-subtitle">连续被 xAI 拒绝才会计数，邮箱 API 或验证码异常不会拉黑域名</p>
+          <div class="mail-source-kicker">Mail source</div>
+          <div class="page-title" id="domain-view-title">邮箱服务</div>
+          <p class="domain-view-subtitle" id="mail-provider-subtitle">读取当前邮箱服务配置</p>
         </div>
-        <span class="domain-job mono" id="domain-updated">等待读取</span>
+        <span class="domain-job" id="mail-provider-heading-label">--</span>
       </div>
 
-      <div class="domain-summary" id="domain-summary" aria-label="邮箱域名池状态">
-        <div class="domain-summary-item"><div class="domain-summary-label">总数</div><div class="domain-summary-value">--</div></div>
-        <div class="domain-summary-item"><div class="domain-summary-label">轮换中</div><div class="domain-summary-value">--</div></div>
-        <div class="domain-summary-item"><div class="domain-summary-label">待命</div><div class="domain-summary-value">--</div></div>
-        <div class="domain-summary-item"><div class="domain-summary-label">已拉黑</div><div class="domain-summary-value">--</div></div>
-        <div class="domain-summary-item"><div class="domain-summary-label">已停用</div><div class="domain-summary-value">--</div></div>
-      </div>
+      <section class="mail-provider-panel" aria-labelledby="mail-provider-label">
+        <div class="mail-provider-toolbar">
+          <div class="field">
+            <label for="mail-provider-select" id="mail-provider-label">邮箱提供商</label>
+            <select id="mail-provider-select" onchange="selectEmailProvider(this.value)">
+              <option value="">正在读取</option>
+            </select>
+          </div>
+          <div class="mail-provider-status">
+            <span class="mail-provider-status-label">当前状态</span>
+            <span class="badge" id="mail-provider-status" role="status" aria-live="polite">读取中</span>
+          </div>
+        </div>
+        <div class="mail-provider-fields" id="mail-provider-fields" aria-live="polite">
+          <div class="field"><label>服务配置</label><input disabled value="正在读取"/></div>
+        </div>
+        <div class="mail-provider-actions">
+          <button class="primary" id="mail-provider-save" onclick="saveEmailProviderConfig()">保存配置</button>
+          <button id="mail-provider-test" onclick="testEmailProviderConnection()">测试当前提供商</button>
+          <span class="mail-provider-meta mono" id="mail-provider-updated">尚未读取</span>
+        </div>
+        <div class="msg mail-provider-result" id="mail-provider-msg" role="status" aria-live="polite"></div>
+      </section>
 
-      <div class="domain-import">
-        <div class="field">
-          <label for="domain-input">域名或子域名（每行一条）</label>
-          <textarea id="domain-input" spellcheck="false" autocomplete="off" placeholder="mail.example.com&#10;inbox.example.net"></textarea>
-        </div>
-        <div class="domain-import-actions">
-          <div class="domain-settings">
-            <div class="field">
-              <label for="domain-provider">邮箱服务商</label>
-              <select id="domain-provider">
-                <option value="cloudflare">Cloudflare</option>
-                <option value="cloudmail">CloudMail</option>
-                <option value="moemail">MoeMail</option>
-                <option value="yyds">YYDS</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="domain-threshold">拒绝阈值</label>
-              <input type="number" id="domain-threshold" min="1" max="20" value="3"/>
-            </div>
-            <div class="field">
-              <label for="domain-max-active">每个服务商活跃数</label>
-              <input type="number" id="domain-max-active" min="0" max="100" value="0" title="0 表示不限"/>
-            </div>
+      <details class="domain-advanced" id="domain-advanced">
+        <summary>
+          <span class="domain-advanced-title">域名轮换 <span class="domain-advanced-meta">高级设置</span></span>
+          <span class="domain-advanced-meta mono" id="domain-advanced-count">0 个域名</span>
+        </summary>
+        <div class="domain-advanced-body">
+          <div class="domain-advanced-head">
+            <span class="domain-advanced-meta">仅 xAI 明确拒绝域名时累计失败</span>
+            <span class="domain-job mono" id="domain-updated">等待读取</span>
           </div>
-          <p class="domain-format">支持根域名或已有子域名。面板域名池只适用于上方四种服务商；未配置对应池时，继续使用 config.json 的旧逻辑。活跃数为 0 表示不限。</p>
-          <div class="button-group">
-            <button class="primary" id="domain-import-button" onclick="importDomainInput()">导入域名</button>
-            <button id="domain-settings-button" onclick="saveDomainSettings()">保存规则</button>
-          </div>
-        </div>
-      </div>
-      <div class="msg" id="domain-msg" role="status" aria-live="polite"></div>
 
-      <div class="domain-list-section">
-        <div class="domain-list-head">
-          <div>
-            <h2>域名明细</h2>
-            <div class="domain-job mono" id="domain-status" role="status" aria-live="polite">未导入域名</div>
+          <div class="domain-summary" id="domain-summary" aria-label="邮箱域名轮换状态">
+            <div class="domain-summary-item"><div class="domain-summary-label">总数</div><div class="domain-summary-value">--</div></div>
+            <div class="domain-summary-item"><div class="domain-summary-label">轮换中</div><div class="domain-summary-value">--</div></div>
+            <div class="domain-summary-item"><div class="domain-summary-label">待命</div><div class="domain-summary-value">--</div></div>
+            <div class="domain-summary-item"><div class="domain-summary-label">已拉黑</div><div class="domain-summary-value">--</div></div>
+            <div class="domain-summary-item"><div class="domain-summary-label">已停用</div><div class="domain-summary-value">--</div></div>
           </div>
-          <button id="domain-refresh-button" onclick="refreshEmailDomains(false)">刷新</button>
+
+          <div class="domain-import">
+            <div class="field">
+              <label for="domain-input">域名或子域名（每行一条）</label>
+              <textarea id="domain-input" spellcheck="false" autocomplete="off" placeholder="mail.example.com&#10;inbox.example.net"></textarea>
+            </div>
+            <div class="domain-import-actions">
+              <div class="domain-settings">
+                <div class="field">
+                  <label for="domain-provider">邮箱服务商</label>
+                  <select id="domain-provider">
+                    <option value="cloudflare">Cloudflare</option>
+                    <option value="cloudmail">CloudMail</option>
+                    <option value="moemail">MoeMail</option>
+                    <option value="yyds">YYDS</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="domain-threshold">拒绝阈值</label>
+                  <input type="number" id="domain-threshold" min="1" max="20" value="3"/>
+                </div>
+                <div class="field">
+                  <label for="domain-max-active">每个服务商活跃数</label>
+                  <input type="number" id="domain-max-active" min="0" max="100" value="0" title="0 表示不限"/>
+                </div>
+              </div>
+              <p class="domain-format">Cloudflare、CloudMail、MoeMail 与 YYDS 可绑定自有域名；0 表示不限制活跃数。</p>
+              <div class="button-group">
+                <button class="primary" id="domain-import-button" onclick="importDomainInput()">导入域名</button>
+                <button id="domain-settings-button" onclick="saveDomainSettings()">保存规则</button>
+              </div>
+            </div>
+          </div>
+          <div class="msg" id="domain-msg" role="status" aria-live="polite"></div>
+
+          <div class="domain-list-section">
+            <div class="domain-list-head">
+              <div>
+                <h2>域名明细</h2>
+                <div class="domain-job mono" id="domain-status" role="status" aria-live="polite">未导入域名</div>
+              </div>
+              <button id="domain-refresh-button" onclick="refreshEmailDomains(false)">刷新</button>
+            </div>
+            <div class="domain-table-wrap">
+              <table class="domain-table">
+                <thead><tr><th>状态</th><th>域名</th><th>服务商</th><th>拒绝次数</th><th>最近状态</th><th>启用</th><th>操作</th></tr></thead>
+                <tbody id="domain-body"><tr><td colspan="7" class="domain-empty">正在读取邮箱域名轮换</td></tr></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div class="domain-table-wrap">
-          <table class="domain-table">
-            <thead><tr><th>状态</th><th>域名</th><th>服务商</th><th>拒绝次数</th><th>最近状态</th><th>启用</th><th>操作</th></tr></thead>
-            <tbody id="domain-body"><tr><td colspan="7" class="domain-empty">正在读取邮箱域名池</td></tr></tbody>
-          </table>
-        </div>
-      </div>
+      </details>
     </div>
   </section>
 
@@ -2043,6 +2165,9 @@ HTML = r"""<!DOCTYPE html>
 let last = null;
 let proxyData = null;
 let domainData = null;
+let emailProviderData = null;
+let selectedEmailProvider = "";
+const clearedEmailSecrets = new Set();
 const THEME_KEY = "GROK_REGISTER_THEME";
 const APP_VIEW_KEY = "GROK_REGISTER_APP_VIEW";
 const HELP_TAB_KEY = "GROK_REGISTER_HELP_TAB";
@@ -2104,19 +2229,22 @@ function setAppView(view, options = {}) {
   proxyLabel.textContent = isProxies ? "返回控制台" : "代理池";
   domainToggle.dataset.active = String(isDomains);
   domainToggle.setAttribute("aria-expanded", String(isDomains));
-  domainToggle.setAttribute("aria-label", isDomains ? "返回控制台" : "打开邮箱域名池");
-  domainToggle.title = isDomains ? "返回控制台" : "邮箱域名池";
-  domainLabel.textContent = isDomains ? "返回控制台" : "邮箱池";
+  domainToggle.setAttribute("aria-label", isDomains ? "返回控制台" : "打开邮箱服务");
+  domainToggle.title = isDomains ? "返回控制台" : "邮箱服务";
+  domainLabel.textContent = isDomains ? "返回控制台" : "邮箱服务";
   if (options.persist !== false) {
     try { localStorage.setItem(APP_VIEW_KEY, view); } catch (e) {}
   }
   if (isProxies) refreshProxies();
-  if (isDomains) refreshEmailDomains();
+  if (isDomains) {
+    refreshEmailProvider();
+    refreshEmailDomains();
+  }
   if (options.focus) {
     requestAnimationFrame(() => {
       const target = isHelp
         ? document.querySelector('[data-help-tab][aria-selected="true"]')
-        : (isProxies ? document.getElementById("proxy-input") : (isDomains ? document.getElementById("domain-input") : (view === "dashboard" ? domainToggle : toggle)));
+        : (isProxies ? document.getElementById("proxy-input") : (isDomains ? document.getElementById("mail-provider-select") : (view === "dashboard" ? domainToggle : toggle)));
       if (target) target.focus();
     });
   }
@@ -2233,7 +2361,7 @@ async function api(path, opts) {
       if (authHelp) showHelpFor("令牌");
       throw new Error("访问令牌不匹配，请重新输入当前面板令牌");
     }
-    throw new Error(j.error || r.statusText || "request failed");
+    throw new Error(j.error || j.detail || r.statusText || "request failed");
   }
   if (j && j.ok === false) throw new Error(j.error || j.message || "request failed");
   return j;
@@ -2381,6 +2509,143 @@ async function deleteProxyItem(id) {
     setMsg("proxy-msg", "代理已删除", "ok");
   } catch (e) { setMsg("proxy-msg", String(e.message || e), "err"); }
 }
+function currentEmailProviderDefinition(provider = selectedEmailProvider) {
+  return (emailProviderData && emailProviderData.providers || []).find(item => item.id === provider) || null;
+}
+function emailProviderFieldControl(field) {
+  const id = "mail-field-" + field.name;
+  const raw = emailProviderData && emailProviderData.values ? emailProviderData.values[field.name] : "";
+  const value = raw ?? field.default ?? "";
+  if (field.type === "select") {
+    const options = (field.options || []).map(option => {
+      const optionValue = typeof option === "object" ? option.value : option;
+      const optionLabel = typeof option === "object" ? option.label : option;
+      return `<option value="${esc(optionValue)}" ${String(optionValue) === String(value) ? "selected" : ""}>${esc(optionLabel)}</option>`;
+    }).join("");
+    return `<select id="${esc(id)}" data-mail-field="${esc(field.name)}">${options}</select>`;
+  }
+  const isSecret = field.secret === true;
+  const configured = isSecret && emailProviderData && emailProviderData.secret_configured && emailProviderData.secret_configured[field.name];
+  const placeholder = configured ? "已配置，留空保留" : (field.placeholder || "");
+  const type = isSecret ? "password" : (["url", "email"].includes(field.type) ? field.type : "text");
+  const input = `<input id="${esc(id)}" data-mail-field="${esc(field.name)}" type="${type}" value="${isSecret ? "" : esc(value)}" placeholder="${esc(placeholder)}" autocomplete="${isSecret ? "new-password" : "off"}" spellcheck="false" ${isSecret ? `oninput="emailProviderSecretInput('${field.name}')"` : ""}/>`;
+  if (!isSecret) return input;
+  const clear = configured ? `<button type="button" data-mail-secret-button="${esc(field.name)}" onclick="toggleEmailProviderSecret('${field.name}')">清除</button>` : "";
+  const note = configured ? "已保存密钥" : "尚未配置";
+  return `<div class="mail-secret-wrap" data-mail-secret-wrap="${esc(field.name)}">${input}${clear}</div><div class="mail-secret-note" data-mail-secret-note="${esc(field.name)}">${note}</div>`;
+}
+function renderEmailProviderFields(provider) {
+  const definition = currentEmailProviderDefinition(provider);
+  if (!definition) return;
+  selectedEmailProvider = definition.id;
+  clearedEmailSecrets.clear();
+  const select = document.getElementById("mail-provider-select");
+  if (select) select.value = definition.id;
+  document.getElementById("mail-provider-heading-label").textContent = definition.label;
+  const persisted = emailProviderData && emailProviderData.provider === definition.id;
+  document.getElementById("mail-provider-subtitle").textContent = persisted
+    ? ("当前注册任务使用 " + definition.label)
+    : ("待切换到 " + definition.label);
+  const status = document.getElementById("mail-provider-status");
+  status.textContent = definition.configured ? "已配置" : "待配置";
+  status.className = "badge " + (definition.configured ? "ok" : "warn");
+  document.getElementById("mail-provider-fields").innerHTML = (definition.fields || []).map(field =>
+    `<div class="field"><label for="mail-field-${esc(field.name)}">${esc(field.label)}</label>${emailProviderFieldControl(field)}</div>`
+  ).join("") || '<div class="field"><label>服务配置</label><input disabled value="该服务商没有可编辑字段"/></div>';
+  const domainProvider = document.getElementById("domain-provider");
+  if (domainProvider && ["cloudflare", "cloudmail", "moemail", "yyds"].includes(definition.id)) {
+    domainProvider.value = definition.id;
+    if (domainData) renderEmailDomainPool(domainData);
+  }
+}
+function renderEmailProviderConfig(data) {
+  emailProviderData = data || {};
+  const select = document.getElementById("mail-provider-select");
+  const providers = emailProviderData.providers || [];
+  select.innerHTML = providers.map(provider =>
+    `<option value="${esc(provider.id)}">${esc(provider.label)}</option>`
+  ).join("");
+  const provider = providers.some(item => item.id === emailProviderData.provider)
+    ? emailProviderData.provider
+    : (providers[0] && providers[0].id || "");
+  const updated = emailProviderData.mtime ? new Date(emailProviderData.mtime * 1000) : null;
+  document.getElementById("mail-provider-updated").textContent = updated && !Number.isNaN(updated.getTime())
+    ? ("config.json " + updated.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }))
+    : "config.json 尚未创建";
+  renderEmailProviderFields(provider);
+}
+function selectEmailProvider(provider) {
+  renderEmailProviderFields(provider);
+  setMsg("mail-provider-msg", "", "");
+}
+function toggleEmailProviderSecret(name) {
+  const clearing = !clearedEmailSecrets.has(name);
+  if (clearing) clearedEmailSecrets.add(name);
+  else clearedEmailSecrets.delete(name);
+  const wrap = document.querySelector(`[data-mail-secret-wrap="${name}"]`);
+  const button = document.querySelector(`[data-mail-secret-button="${name}"]`);
+  const note = document.querySelector(`[data-mail-secret-note="${name}"]`);
+  if (wrap) wrap.classList.toggle("pending-clear", clearing);
+  if (button) button.textContent = clearing ? "撤销" : "清除";
+  if (note) {
+    note.textContent = clearing ? "保存后清除密钥" : "已保存密钥";
+    note.className = "mail-secret-note" + (clearing ? " warn" : "");
+  }
+}
+function emailProviderSecretInput(name) {
+  const input = document.getElementById("mail-field-" + name);
+  if (input && input.value && clearedEmailSecrets.has(name)) toggleEmailProviderSecret(name);
+}
+function collectEmailProviderSettings() {
+  const definition = currentEmailProviderDefinition();
+  const settings = {};
+  (definition && definition.fields || []).forEach(field => {
+    const input = document.getElementById("mail-field-" + field.name);
+    if (!input) return;
+    settings[field.name] = field.name === "moemail_expiry_ms" ? Number(input.value) : input.value;
+  });
+  return settings;
+}
+async function refreshEmailProvider(authHelp = false) {
+  try {
+    const data = await api("/api/email-provider?_=" + Date.now(), { authHelp });
+    renderEmailProviderConfig(data);
+    if (!data.ok && data.error) setMsg("mail-provider-msg", data.error, "err");
+  } catch (e) {
+    const message = String(e.message || e);
+    document.getElementById("mail-provider-heading-label").textContent = message.includes("令牌") ? "等待令牌" : "读取失败";
+    setMsg("mail-provider-msg", message, "err");
+  }
+}
+async function saveEmailProviderConfig() {
+  const button = document.getElementById("mail-provider-save");
+  button.disabled = true;
+  setMsg("mail-provider-msg", "正在保存…", "");
+  try {
+    const result = await api("/api/email-provider", { method: "POST", body: JSON.stringify({
+      provider: selectedEmailProvider,
+      settings: collectEmailProviderSettings(),
+      clear_secrets: Array.from(clearedEmailSecrets),
+    }) });
+    renderEmailProviderConfig(result);
+    setMsg("mail-provider-msg", result.provider_label + " 配置已保存", "ok");
+  } catch (e) { setMsg("mail-provider-msg", String(e.message || e), "err"); }
+  button.disabled = false;
+}
+async function testEmailProviderConnection() {
+  const button = document.getElementById("mail-provider-test");
+  button.disabled = true;
+  setMsg("mail-provider-msg", "正在测试连通性…", "");
+  try {
+    const result = await api("/api/email-provider/test", { method: "POST", body: JSON.stringify({
+      provider: selectedEmailProvider,
+      settings: collectEmailProviderSettings(),
+      clear_secrets: Array.from(clearedEmailSecrets),
+    }) });
+    setMsg("mail-provider-msg", result.detail || "连接正常", "ok");
+  } catch (e) { setMsg("mail-provider-msg", String(e.message || e), "err"); }
+  button.disabled = false;
+}
 function domainStatusLabel(status) {
   return ({ active: "轮换中", standby: "待命", blocked: "已拉黑", disabled: "已停用" })[status] || "待命";
 }
@@ -2397,6 +2662,7 @@ function renderEmailDomainPool(data) {
   document.getElementById("domain-summary").innerHTML = values.map(([label, value, cls]) =>
     `<div class="domain-summary-item"><div class="domain-summary-label">${esc(label)}</div><div class="domain-summary-value ${cls}">${esc(value)}</div></div>`
   ).join("");
+  document.getElementById("domain-advanced-count").textContent = (summary.total ?? 0) + " 个域名";
   document.getElementById("domain-updated").textContent = domainData.updated_at ? ("更新 " + proxyTime(domainData.updated_at)) : "尚未写入";
   const settings = domainData.settings || {};
   const focused = document.activeElement && ["domain-threshold", "domain-max-active"].includes(document.activeElement.id);
@@ -2894,7 +3160,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/health":
             self._json(200, {"ok": True})
             return
-        if u.path in ("/api/status", "/api/blacklist", "/api/stats", "/api/control", "/api/recovery", "/api/proxies", "/api/email-domains"):
+        if u.path in ("/api/status", "/api/blacklist", "/api/stats", "/api/control", "/api/recovery", "/api/proxies", "/api/email-provider", "/api/email-domains"):
             if not self._require_read():
                 return
         if u.path == "/api/status":
@@ -2929,6 +3195,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/proxies":
             try:
                 self._json(200, read_proxy_pool())
+            except Exception as e:
+                self._json(500, {"ok": False, "error": redact_log_line(str(e))})
+            return
+        if u.path == "/api/email-provider":
+            try:
+                self._json(200, read_email_provider_config())
             except Exception as e:
                 self._json(500, {"ok": False, "error": redact_log_line(str(e))})
             return
@@ -3013,6 +3285,32 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(code, result)
             except Exception as e:
                 self._json(400, {"ok": False, "error": redact_log_line(str(e))})
+            return
+        if u.path == "/api/email-provider":
+            try:
+                result = save_email_provider_config(
+                    body.get("provider"),
+                    body.get("settings") or {},
+                    clear_secrets=body.get("clear_secrets"),
+                )
+                self._json(200, result)
+            except ValueError as e:
+                self._json(400, {"ok": False, "error": redact_log_line(str(e))})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": redact_log_line(str(e))})
+            return
+        if u.path == "/api/email-provider/test":
+            try:
+                result = test_email_provider_config(
+                    body.get("provider"),
+                    body.get("settings") or {},
+                    clear_secrets=body.get("clear_secrets"),
+                )
+                self._json(200 if result.get("ok") else 424, result)
+            except ValueError as e:
+                self._json(400, {"ok": False, "error": redact_log_line(str(e))})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": redact_log_line(str(e))})
             return
         if u.path == "/api/email-domains/import":
             try:

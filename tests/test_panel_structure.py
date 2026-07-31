@@ -135,13 +135,30 @@ def test_proxy_pool_panel_structure():
     assert '面板代理池没有健康且启用的代理' in worker
     assert 'redact_proxy(px)' in worker
 
-def test_email_domain_pool_panel_structure():
+def test_email_service_and_domain_rotation_panel_structure():
     mon = (ROOT / 'webui/monitor.py').read_text(encoding='utf-8')
     html = mon.split('HTML = r"""', 1)[1].split('"""', 1)[0]
     worker = (ROOT / 'grok_register_ttk.py').read_text(encoding='utf-8')
     flow = (ROOT / 'register_flow.py').read_text(encoding='utf-8')
     assert 'id="domain-view-toggle"' in html
     assert 'id="domain-view"' in html
+    assert 'id="domain-view-label" aria-hidden="true">邮箱服务</span>' in html
+    assert 'id="mail-provider-select"' in html
+    assert 'id="mail-provider-fields"' in html
+    assert 'id="mail-provider-save"' in html
+    assert 'id="mail-provider-test"' in html
+    assert 'id="mail-provider-status"' in html
+    assert 'function refreshEmailProvider(' in mon
+    assert 'function renderEmailProviderConfig(' in mon
+    assert 'function renderEmailProviderFields(' in mon
+    assert 'function saveEmailProviderConfig(' in mon
+    assert 'function testEmailProviderConnection(' in mon
+    assert 'function toggleEmailProviderSecret(' in mon
+    assert '/api/email-provider' in mon
+    assert '/api/email-provider/test' in mon
+    assert 'Apple Mail API' not in html
+    assert 'id="domain-advanced"' in html
+    assert '域名轮换 <span class="domain-advanced-meta">高级设置</span>' in html
     assert 'id="domain-input"' in html
     assert 'id="domain-summary"' in html
     assert 'id="domain-body"' in html
@@ -191,6 +208,6 @@ if __name__ == '__main__':
     test_compact_overview_density()
     test_help_and_faq_module()
     test_proxy_pool_panel_structure()
-    test_email_domain_pool_panel_structure()
+    test_email_service_and_domain_rotation_panel_structure()
     test_panel_security_and_recovery_structure()
     print('OK structure')

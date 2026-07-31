@@ -128,6 +128,7 @@ cp config.example.json config.json
 | `PROXY_POOL_STATE_FILE` | `./log/proxy_pool.json` | 外部代理池凭据、健康与冷却状态，文件权限 `0600` |
 | `PROXY_NETWORK_COOLDOWN_SECONDS` | `90` | 运行时网络异常的短冷却秒数 |
 | `PROXY_RISK_COOLDOWN_SECONDS` | `1800` | 注册风控后的长冷却秒数 |
+| `EMAIL_PROVIDER_CONFIG_FILE` | `./config.json` | 面板邮箱服务配置文件；保存时保持 `0600` |
 | `EMAIL_DOMAIN_POOL_STATE_FILE` | `./log/email_domain_pool.json` | 邮箱域名池状态与规则，文件权限 `0600` |
 
 生成 token 示例：
@@ -157,7 +158,8 @@ python webui/monitor.py
 2. 填入与 `MONITOR_TOKEN` **相同**的字符串（自动写入 `localStorage`）  
 3. 设模式 / workers / batch 数量 / 再跑 N / 风控满 N → **启动**
 4. 需要多出口时打开顶部 **代理池**，导入代理并等待检测完成
-5. 使用自有收信域名时打开顶部 **邮箱池**，选择 provider 后导入域名并保存规则
+5. 打开顶部 **邮箱服务**，选择 provider、填写对应参数，保存后执行一次连接测试
+6. 需要多个自有收信域名轮换时，再展开 **域名轮换 · 高级设置** 导入域名并保存规则
 
 也可在控制台手动写入：
 
@@ -236,7 +238,15 @@ python grok_register_ttk.py
 
 代理池不抓取、不分发公共代理，只管理操作者自己提供的外部代理。
 
-### 邮箱域名池
+### 邮箱服务与高级域名轮换
+
+- 顶部“邮箱服务”统一配置 `cloudflare`、`duckmail`、`yyds`、`mailnest`、`cloudmail`、`moemail`
+- 切换服务商时只显示该服务实际支持的字段；保存后新的注册任务读取 `config.json`
+- 已保存的 API Key、JWT 和密码不会通过接口或页面回显；密钥输入留空会保留原值，必须点“清除”并保存才会删除
+- “测试当前提供商”使用表单中的未保存内容做非破坏性连通性检查，不会改写 `config.json`
+- `config.json` 以原子方式更新并保持 `0600`，现有无关配置项不会被覆盖
+
+域名轮换位于邮箱服务页的高级设置中：
 
 - 支持导入根域名或已有子域名，并绑定 `cloudflare`、`cloudmail`、`moemail`、`yyds` provider
 - 每个 provider 可设置最大活跃域名数；超出部分待命，活跃域名停用或拉黑后自动补位
@@ -353,10 +363,10 @@ A: 打开顶部“代理池”查看异常和冷却原因，重新检测后只�
 A: 导入项尚未检测、已停用、检测失败或仍在冷却。先在代理池页面执行“检测全部”；面板池已配置时不会回退复用旧文件中的坏代理。
 
 **Q: 邮箱域名被自动拉黑，或域名池没有可用项？**
-A: 只有 xAI 明确拒绝邮箱域名才会累计。打开“邮箱池”查看连续拒绝次数，确认 provider 与域名绑定正确；可手动重置或启用其它待命域名。邮箱 API、验证码超时不会触发域名拉黑。
+A: 只有 xAI 明确拒绝邮箱域名才会累计。打开“邮箱服务”并展开“域名轮换 · 高级设置”查看连续拒绝次数，确认 provider 与域名绑定正确；可手动重置或启用其它待命域名。邮箱 API、验证码超时不会触发域名拉黑。
 
 **Q: 邮箱 API 401？**  
-A: 与代理无关，检查 `config.json` 里对应 provider 的 key / auth_mode。
+A: 打开“邮箱服务”检查对应 provider 的 Key / JWT / `auth_mode`，保存后点“测试当前提供商”。页面不会回显已保存密钥，输入框留空表示保留原值。
 
 **Q: `Address already in use` / 面板打不开？**  
 A: 8787 被其它进程占用（例如同机其它服务）。换 `MONITOR_PORT`，或先释放端口。绑定失败**不会**自动改绑 `0.0.0.0`。

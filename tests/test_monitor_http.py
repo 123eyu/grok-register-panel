@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from webui import monitor
 from webui import email_domain_store
+from webui import email_provider_store
 from webui import proxy_store
 
 
@@ -266,6 +267,109 @@ def test_email_domain_api_auth_and_mutations():
                 os.environ["MONITOR_TOKEN"] = previous_token
 
 
+def test_email_provider_api_auth_secret_masking_and_probe():
+    token = "test-email-provider-token-123456"
+    secret = "provider-secret-value"
+    previous_token = os.environ.get("MONITOR_TOKEN")
+    previous_paths = (
+        email_provider_store.CONFIG_PATH,
+        email_provider_store.LOCK_PATH,
+    )
+    previous_test = monitor.test_email_provider_config
+    calls = []
+    with tempfile.TemporaryDirectory() as temp:
+        base_path = Path(temp)
+        email_provider_store.CONFIG_PATH = base_path / "config.json"
+        email_provider_store.LOCK_PATH = base_path / "config.json.lock"
+
+        def fake_test(provider, settings, *, clear_secrets=None):
+            calls.append((provider, settings, clear_secrets))
+            return {
+                "ok": True,
+                "provider": provider,
+                "provider_label": "CloudMail",
+                "detail": "CloudMail HTTP 200",
+                "checked_at": "2026-07-31T00:00:00Z",
+            }
+
+        monitor.test_email_provider_config = fake_test
+        os.environ["MONITOR_TOKEN"] = token
+        server = monitor.ThreadingHTTPServer(("127.0.0.1", 0), monitor.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        payload = json.dumps(
+            {
+                "provider": "cloudmail",
+                "settings": {
+                    "cloudmail_url": "https://mail.example.com",
+                    "cloudmail_admin_email": "admin@example.com",
+                    "cloudmail_password": secret,
+                    "defaultDomains": "mail.example.com",
+                },
+            }
+        ).encode("utf-8")
+        try:
+            status, _, _ = request(base + "/api/email-provider")
+            assert status == 401
+            status, _, _ = request(
+                base + "/api/email-provider",
+                method="POST",
+                body=payload,
+            )
+            assert status == 401
+
+            status, _, body = request(
+                base + "/api/email-provider",
+                token=token,
+                method="POST",
+                body=payload,
+            )
+            assert status == 200
+            assert secret not in body.decode("utf-8")
+            saved = json.loads(body)
+            assert saved["provider"] == "cloudmail"
+            assert saved["secret_configured"]["cloudmail_password"] is True
+
+            status, _, body = request(base + "/api/email-provider", token=token)
+            assert status == 200
+            assert secret not in body.decode("utf-8")
+            assert json.loads(body)["values"]["cloudmail_password"] == ""
+
+            status, _, body = request(
+                base + "/api/email-provider/test",
+                token=token,
+                method="POST",
+                body=json.dumps(
+                    {
+                        "provider": "cloudmail",
+                        "settings": {"cloudmail_password": ""},
+                    }
+                ).encode("utf-8"),
+            )
+            assert status == 200
+            assert json.loads(body)["detail"] == "CloudMail HTTP 200"
+            assert calls == [("cloudmail", {"cloudmail_password": ""}, None)]
+
+            status, _, _ = request(
+                base + "/api/email-provider",
+                token=token,
+                method="POST",
+                body=b'{"provider":"cloudmail","settings":{"proxy":"bad"}}',
+            )
+            assert status == 400
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+            monitor.test_email_provider_config = previous_test
+            email_provider_store.CONFIG_PATH, email_provider_store.LOCK_PATH = previous_paths
+            if previous_token is None:
+                os.environ.pop("MONITOR_TOKEN", None)
+            else:
+                os.environ["MONITOR_TOKEN"] = previous_token
+
+
 def test_non_loopback_requires_token():
     env = dict(os.environ)
     env.pop("MONITOR_TOKEN", None)
@@ -288,5 +392,6 @@ if __name__ == "__main__":
     test_monitor_http_auth_and_headers()
     test_proxy_api_auth_mutations_and_redaction()
     test_email_domain_api_auth_and_mutations()
+    test_email_provider_api_auth_secret_masking_and_probe()
     test_non_loopback_requires_token()
     print("OK monitor http")

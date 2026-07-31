@@ -14,6 +14,7 @@ tests=(
   tests/test_monitor_http.py
   tests/test_proxy_store.py
   tests/test_proxy_worker_integration.py
+  tests/test_email_provider_store.py
   tests/test_email_domain_store.py
   tests/test_email_domain_worker_integration.py
   tests/test_panel_structure.py
