@@ -44,6 +44,11 @@ chmod 600 config.json
 导入后先完成探活；有面板池条目时 worker 只使用健康且启用的代理，全部异常或
 冷却时会停止对应任务。一个账号开始后，注册、SSO 与 OAuth 全程固定同一出口。
 
+面板“邮箱池”会把域名、provider、拒绝计数和轮换规则写入
+`log/email_domain_pool.json`，文件权限为 `0600`。只有 xAI 明确拒绝邮箱域名时
+才累计并按阈值拉黑；邮箱 API、验证码或网络异常不会处罚域名。对应 provider
+池耗尽时 worker 会停止该任务，不会回退到已被停用或拉黑的旧域名配置。
+
 ## 3. 发布前检查
 
 ```bash
@@ -71,6 +76,8 @@ export CPA_AUTH_DIR="$PWD/cpa_auth"
 # export PROXY_POOL_STATE_FILE="$PWD/log/proxy_pool.json"
 # export PROXY_NETWORK_COOLDOWN_SECONDS=90
 # export PROXY_RISK_COOLDOWN_SECONDS=1800
+# 可选：覆盖邮箱域名池状态位置
+# export EMAIL_DOMAIN_POOL_STATE_FILE="$PWD/log/email_domain_pool.json"
 
 .venv/bin/python -u webui/monitor.py
 ```
@@ -151,4 +158,5 @@ scripts/run_xvfb_batch.sh 10
 - 生产环境不要启用原始日志尾部。
 - 不要把 Token 写入 URL、命令行参数、仓库或 issue。
 - 代理池 API 不返回账号密码，但 `log/proxy_pool.json` 本身含真实凭据，备份与迁移时按密钥材料处理。
+- 邮箱域名池不保存邮箱账号密码，但 `log/email_domain_pool.json` 仍属于运行状态，迁移时保留 `0600` 权限。
 - 面板使用内置 HTTP 服务，适合单机、LAN 或 tailnet 运维，不替代互联网边界网关。

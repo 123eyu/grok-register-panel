@@ -7,6 +7,7 @@
 - [ ] The batch supervisor test restarts a simulated `_getChildFrames` driver crash and resumes only remaining slots.
 - [ ] `config.json`, all `proxies*.txt` / `stickies*.txt`, `accounts/`, auth directories, and `log/` are owner-only.
 - [ ] `log/proxy_pool.json` is `0600`; proxy API and rendered HTML never expose stored userinfo.
+- [ ] `log/email_domain_pool.json` is `0600`; domain pool rules and rejection state are owner-only.
 - [ ] `MONITOR_TOKEN` is set and anonymous operational API requests return 401.
 - [ ] `PANEL_INCLUDE_TAIL=0` in the production environment.
 - [ ] The monitor binds to the intended loopback, LAN, or Tailscale address only.

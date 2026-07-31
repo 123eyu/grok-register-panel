@@ -94,7 +94,7 @@ def test_help_and_faq_module():
     assert 'body.help-view-open #dashboard-view > :not(#help-view) { display: none; }' in html
     assert 'role="tablist"' in html
     assert 'id="faq-search"' in html
-    assert len(re.findall(r'<details class="faq-item" data-faq-item', html)) == 12
+    assert len(re.findall(r'<details class="faq-item" data-faq-item', html)) == 13
     assert 'policy=deny' in html
     assert '账号补录' in html
     assert '成功项会从待补录队列移除' in html
@@ -135,6 +135,31 @@ def test_proxy_pool_panel_structure():
     assert '面板代理池没有健康且启用的代理' in worker
     assert 'redact_proxy(px)' in worker
 
+def test_email_domain_pool_panel_structure():
+    mon = (ROOT / 'webui/monitor.py').read_text(encoding='utf-8')
+    html = mon.split('HTML = r"""', 1)[1].split('"""', 1)[0]
+    worker = (ROOT / 'grok_register_ttk.py').read_text(encoding='utf-8')
+    flow = (ROOT / 'register_flow.py').read_text(encoding='utf-8')
+    assert 'id="domain-view-toggle"' in html
+    assert 'id="domain-view"' in html
+    assert 'id="domain-input"' in html
+    assert 'id="domain-summary"' in html
+    assert 'id="domain-body"' in html
+    assert 'function refreshEmailDomains(' in mon
+    assert 'function renderEmailDomainPool(' in mon
+    assert 'function importDomainInput(' in mon
+    assert 'function saveDomainSettings(' in mon
+    assert 'function setEmailDomainEnabled(' in mon
+    assert 'function resetEmailDomain(' in mon
+    assert '/api/email-domains/import' in mon
+    assert '/api/email-domains/settings' in mon
+    assert 'def do_PATCH(self):' in mon
+    assert 'def do_DELETE(self):' in mon
+    assert 'select_domain as _select_managed_email_domain' in worker
+    assert '邮箱域名池没有可用的' in worker
+    assert 'on_email_domain_rejected' in flow
+    assert 'on_email_accepted' in flow
+
 def test_panel_security_and_recovery_structure():
     mon = (ROOT / 'webui/monitor.py').read_text(encoding='utf-8')
     html = mon.split('HTML = r"""', 1)[1].split('"""', 1)[0]
@@ -166,5 +191,6 @@ if __name__ == '__main__':
     test_compact_overview_density()
     test_help_and_faq_module()
     test_proxy_pool_panel_structure()
+    test_email_domain_pool_panel_structure()
     test_panel_security_and_recovery_structure()
     print('OK structure')
