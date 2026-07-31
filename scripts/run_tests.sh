@@ -17,6 +17,7 @@ tests=(
   tests/test_email_provider_store.py
   tests/test_email_domain_store.py
   tests/test_email_domain_worker_integration.py
+  tests/test_star_history.py
   tests/test_panel_structure.py
   tests/test_no_live_hardcode.py
   tests/test_batch_chdir_import.py
