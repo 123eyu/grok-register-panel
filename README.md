@@ -402,6 +402,17 @@ A: 在控制台使用“账号补录”。待处理模式成功后自动出队�
 | 稳定性 | `from __future__` 置顶；`Path` 先于 `chdir`；workers DOM id 拆分 |
 | 结果流 | `register_results.jsonl` 仅 JSON 行 |
 
+## Star History
+
+<a href="https://github.com/lij768423-svg/grok-register-panel/stargazers">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/star-history-dark.svg">
+    <img alt="Grok Register Panel GitHub Star 增长趋势" src="docs/star-history-light.svg">
+  </picture>
+</a>
+
+图表根据 GitHub Stargazer 时间戳生成，由 GitHub Actions 每日更新，不依赖第三方绘图接口。
+
 ## 友情链接
 
 - [LINUX DO](https://linux.do) — 新的理想型社区
