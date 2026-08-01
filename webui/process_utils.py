@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import signal
-import subprocess
 import time
 from pathlib import Path
+
+import psutil
 
 try:
     from secure_files import atomic_write_text
@@ -19,18 +20,37 @@ except ImportError:  # running from webui/
     from secure_files import atomic_write_text
 
 
-def _cmdline(pid: int) -> list[str]:
-    try:
-        raw = Path(f"/proc/{int(pid)}/cmdline").read_bytes()
-        return [part.decode(errors="replace") for part in raw.split(b"\0") if part]
-    except (OSError, ValueError):
-        return []
+class ProcessInspectionError(RuntimeError):
+    pass
 
 
-def _cwd(pid: int) -> Path | None:
+PROCESS_ERRORS = (psutil.Error, OSError, TypeError, ValueError)
+
+
+def _process_snapshot(process) -> dict | None:
     try:
-        return Path(os.readlink(f"/proc/{int(pid)}/cwd")).resolve()
-    except (OSError, ValueError):
+        info = getattr(process, "info", None)
+        if not isinstance(info, dict):
+            info = process.as_dict(
+                attrs=("pid", "cwd", "cmdline", "create_time"),
+                ad_value=None,
+            )
+        pid = int(info.get("pid"))
+        cwd_value = info.get("cwd")
+        cmdline_value = info.get("cmdline")
+        if not cwd_value or not isinstance(cmdline_value, (list, tuple)):
+            return None
+        cwd = Path(str(cwd_value)).resolve()
+        cmdline = [str(part) for part in cmdline_value if str(part)]
+        created = info.get("create_time")
+        create_time = float(created) if created is not None else None
+        return {
+            "pid": pid,
+            "cwd": cwd,
+            "cmdline": cmdline,
+            "create_time": create_time,
+        }
+    except PROCESS_ERRORS:
         return None
 
 
@@ -46,20 +66,44 @@ def _resolved_arg(arg: str, cwd: Path) -> Path | None:
         return None
 
 
-def process_matches(
-    pid: int,
+def _snapshot_matches(
+    snapshot: dict,
     root: str | os.PathLike[str],
     script_names: tuple[str, ...] | list[str],
 ) -> bool:
     project_root = Path(root).resolve()
-    process_cwd = _cwd(pid)
+    process_cwd = snapshot.get("cwd")
     if process_cwd != project_root:
         return False
     expected = {(project_root / name).resolve() for name in script_names}
     return any(
         _resolved_arg(arg, process_cwd) in expected
-        for arg in _cmdline(pid)
+        for arg in snapshot.get("cmdline") or []
     )
+
+
+def process_matches(
+    pid: int,
+    root: str | os.PathLike[str],
+    script_names: tuple[str, ...] | list[str],
+) -> bool:
+    try:
+        snapshot = _process_snapshot(psutil.Process(int(pid)))
+    except PROCESS_ERRORS:
+        return False
+    return bool(snapshot and _snapshot_matches(snapshot, root, script_names))
+
+
+def _format_elapsed(seconds: float) -> str:
+    total = max(0, int(seconds))
+    days, remainder = divmod(total, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if days:
+        return f"{days}-{hours:02d}:{minutes:02d}:{secs:02d}"
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def find_managed_processes(
@@ -67,38 +111,36 @@ def find_managed_processes(
     script_names: tuple[str, ...] | list[str],
 ) -> list[dict]:
     found = []
-    proc_root = Path("/proc")
-    for entry in proc_root.iterdir():
-        if not entry.name.isdigit():
-            continue
-        pid = int(entry.name)
-        if not process_matches(pid, root, script_names):
-            continue
-        cmdline = _cmdline(pid)
-        etime = ""
-        try:
-            pgid = os.getpgid(pid)
-        except OSError:
-            pgid = None
-        try:
-            result = subprocess.run(
-                ["ps", "-o", "etime=", "-p", str(pid)],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-            etime = result.stdout.strip()
-        except Exception:
-            pass
-        found.append(
-            {
-                "pid": pid,
-                "pgid": pgid,
-                "etime": etime,
-                "cmd": " ".join(cmdline)[:240],
-            }
+    now = time.time()
+    try:
+        iterator = psutil.process_iter(
+            attrs=("pid", "cwd", "cmdline", "create_time"),
+            ad_value=None,
         )
+        for process in iterator:
+            snapshot = _process_snapshot(process)
+            if not snapshot or not _snapshot_matches(snapshot, root, script_names):
+                continue
+            pid = snapshot["pid"]
+            try:
+                pgid = os.getpgid(pid) if os.name == "posix" else None
+            except OSError:
+                pgid = None
+            created = snapshot.get("create_time")
+            etime = _format_elapsed(now - created) if created is not None else ""
+            found.append(
+                {
+                    "pid": pid,
+                    "pgid": pgid,
+                    "etime": etime,
+                    "cmd": " ".join(snapshot["cmdline"])[:240],
+                }
+            )
+    except (psutil.Error, OSError) as exc:
+        raise ProcessInspectionError(
+            "无法读取系统进程列表；Linux 容器请确认 /proc 已挂载，"
+            "macOS/Windows 请重新安装 requirements.txt 中的 psutil"
+        ) from exc
     return sorted(found, key=lambda item: item["pid"])
 
 
@@ -132,12 +174,17 @@ def terminate_managed_processes(
     if not pids:
         return []
 
+    if os.name != "posix":
+        _terminate_process_trees(pids, grace_seconds)
+        return sorted(pids)
+
     groups: set[int] = set()
     direct: set[int] = set()
     for pid in pids:
         try:
             pgid = os.getpgid(pid)
         except OSError:
+            direct.add(pid)
             continue
         if pgid == pid:
             groups.add(pgid)
@@ -173,3 +220,32 @@ def terminate_managed_processes(
         except OSError:
             pass
     return sorted(pids)
+
+
+def _terminate_process_trees(pids: set[int], grace_seconds: float) -> None:
+    ordered = []
+    seen = set()
+    for pid in sorted(pids):
+        try:
+            process = psutil.Process(pid)
+            children = process.children(recursive=True)
+        except PROCESS_ERRORS:
+            continue
+        for target in [*reversed(children), process]:
+            if target.pid in seen:
+                continue
+            seen.add(target.pid)
+            ordered.append(target)
+    for process in ordered:
+        try:
+            process.terminate()
+        except PROCESS_ERRORS:
+            pass
+    _gone, alive = psutil.wait_procs(ordered, timeout=max(0.0, grace_seconds))
+    for process in alive:
+        try:
+            process.kill()
+        except PROCESS_ERRORS:
+            pass
+    if alive:
+        psutil.wait_procs(alive, timeout=2)
