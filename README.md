@@ -413,6 +413,10 @@ A: 在控制台使用“账号补录”。待处理模式成功后自动出队�
 
 图表根据 GitHub Stargazer 时间戳生成，由 GitHub Actions 每日更新，不依赖第三方绘图接口。
 
+## 相关项目
+
+- [grok2api-egress-enhancements](https://github.com/lij768423-svg/grok2api-egress-enhancements) — grok2api 出口增强补丁：固定代理快速恢复 + 出口质量守护（被动 Token/s 熔断、硬阈值隔离、最低健康节点、管理面板）
+
 ## 友情链接
 
 - [LINUX DO](https://linux.do) — 新的理想型社区
