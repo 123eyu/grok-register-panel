@@ -22,14 +22,31 @@ def runtime_python(
     root: str | os.PathLike[str],
     *,
     platform_name: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    current_executable: str | os.PathLike[str] | None = None,
 ) -> Path:
     project_root = Path(root).resolve()
     platform = _platform_name(platform_name)
-    return (
+    env = os.environ if environ is None else environ
+    configured = str(env.get("GROK_PYTHON_BIN", "") or "").strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not configured_path.is_absolute():
+            configured_path = project_root / configured_path
+        return configured_path.resolve()
+
+    project_python = (
         project_root / ".venv" / "Scripts" / "python.exe"
         if platform.startswith("win")
         else project_root / ".venv" / "bin" / "python"
     )
+    if project_python.is_file():
+        return project_python
+
+    active_python = Path(
+        sys.executable if current_executable is None else current_executable
+    ).expanduser()
+    return active_python if active_python.is_file() else project_python
 
 
 def _xvfb_mode(environ: Mapping[str, str]) -> str:

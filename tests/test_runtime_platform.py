@@ -35,14 +35,30 @@ def test_runtime_python_uses_platform_virtualenv_layout():
         assert runtime_python(root, platform_name="win32") == windows_python.resolve()
 
 
-def test_runtime_python_does_not_reuse_another_platform_layout():
+def test_runtime_python_falls_back_to_active_interpreter():
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         windows_python = _touch(root / ".venv" / "Scripts" / "python.exe")
-        expected = root.resolve() / ".venv" / "bin" / "python"
+        active_python = _touch(root / "shared-venv" / "bin" / "python")
         assert windows_python.is_file()
-        assert runtime_python(root, platform_name="linux") == expected
-        assert not expected.exists()
+        assert runtime_python(
+            root,
+            platform_name="linux",
+            environ={},
+            current_executable=active_python,
+        ) == active_python
+
+
+def test_runtime_python_supports_explicit_override():
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        configured = _touch(root / "shared" / "python")
+        assert runtime_python(
+            root,
+            platform_name="linux",
+            environ={"GROK_PYTHON_BIN": "shared/python"},
+            current_executable=root / "unused" / "python",
+        ) == configured.resolve()
 
 
 def test_linux_headless_launch_uses_xvfb_automatically():
@@ -175,7 +191,8 @@ def test_recovery_module_can_run_from_webui_directory():
 
 if __name__ == "__main__":
     test_runtime_python_uses_platform_virtualenv_layout()
-    test_runtime_python_does_not_reuse_another_platform_layout()
+    test_runtime_python_falls_back_to_active_interpreter()
+    test_runtime_python_supports_explicit_override()
     test_linux_headless_launch_uses_xvfb_automatically()
     test_linux_display_and_disabled_mode_launch_directly()
     test_missing_xvfb_returns_actionable_error()
