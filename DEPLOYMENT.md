@@ -1,6 +1,7 @@
 # 部署指南
 
-本文以 Linux 无头服务器为主，Python 3.10+ 可用；发布版本在 Python 3.14 环境完成验证。
+本文以 Linux 无头服务器为主，Python 3.10+ 可用；Web 面板同时支持 macOS，
+Windows 浏览器批处理链路仍为实验性。发布版本在 Python 3.14 环境完成验证。
 
 ## 1. 安装
 
@@ -15,6 +16,7 @@ python3 -m venv .venv
 ```
 
 `requirements.txt` 固定直接依赖版本；`requirements.lock.txt` 是发布环境的完整依赖快照。
+`psutil` 是面板进程发现与安全停止的直接依赖，不应从安装列表中删去。
 
 验证：
 
@@ -22,6 +24,14 @@ python3 -m venv .venv
 .venv/bin/python -m pip check
 .venv/bin/python -m camoufox version
 ```
+
+### 平台运行规则
+
+- Linux 无 `DISPLAY` / `WAYLAND_DISPLAY` 时，面板和编排器自动使用 `xvfb-run`。
+- Linux 有显示会话以及 macOS 直接启动 Camoufox，不调用 Xvfb。
+- `GROK_USE_XVFB=1` 可在 Linux 强制使用 Xvfb，`GROK_USE_XVFB=0` 可明确直启；默认 `auto`。
+- Linux 容器必须挂载 procfs 到 `/proc`。缺失时面板会拒绝启停任务并给出明确错误，避免在无法确认进程状态时重复启动。
+- Windows 已兼容 `.venv\\Scripts\\python.exe` 与面板进程管理，但浏览器批处理仍需在目标环境单独验证。
 
 ## 2. 配置
 
@@ -77,6 +87,8 @@ export MONITOR_HOST=127.0.0.1
 export MONITOR_PORT=8787
 export PANEL_INCLUDE_TAIL=0
 export CPA_AUTH_DIR="$PWD/cpa_auth"
+# 可选：auto / 1 / 0；默认 auto
+# export GROK_USE_XVFB=auto
 # 可选：覆盖代理池状态位置与冷却时间
 # export PROXY_POOL_STATE_FILE="$PWD/log/proxy_pool.json"
 # export PROXY_NETWORK_COOLDOWN_SECONDS=90
@@ -122,13 +134,17 @@ curl -H "Authorization: Bearer $MONITOR_TOKEN" http://目标地址:8787/api/stat
 
 ## 6. 运行任务
 
-单批：
+从面板启动时会按上述平台规则自动选择 Xvfb。直接执行单批时：
 
 ```bash
+# Linux 无头
 xvfb-run -a .venv/bin/python -u run_batch_headless.py 20 3
+
+# Linux 有显示 / macOS
+.venv/bin/python -u run_batch_headless.py 20 3
 ```
 
-辅助脚本：
+以下辅助脚本仅用于 Linux/Xvfb：
 
 ```bash
 scripts/run_xvfb_smoke.sh 1

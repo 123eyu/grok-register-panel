@@ -4,6 +4,7 @@
 
 - Supervise headless batches and automatically resume remaining task slots after a Playwright/Camoufox driver crash or stall.
 - Persist batch slot progress atomically so completed accounts are not repeated during recovery.
+- Make panel process management and batch launch platform-aware: `psutil` discovery, Linux auto-Xvfb, macOS direct launch, Windows virtualenv paths, and actionable missing-procfs errors.
 
 ## 0.2.0 - 2026-07-30
 

@@ -10,6 +10,7 @@ tests=(
   tests/test_extract_code.py
   tests/test_moemail.py
   tests/test_runtime_security.py
+  tests/test_runtime_platform.py
   tests/test_sso_recovery.py
   tests/test_monitor_http.py
   tests/test_proxy_store.py
@@ -36,6 +37,7 @@ done
   connectivity.py \
   grok_register_ttk.py \
   register_flow.py \
+  runtime_platform.py \
   batch_supervisor.py \
   run_batch_headless.py \
   run_until_100.py \
