@@ -30,6 +30,7 @@ python3 -m venv .venv
 - Linux 无 `DISPLAY` / `WAYLAND_DISPLAY` 时，面板和编排器自动使用 `xvfb-run`。
 - Linux 有显示会话以及 macOS 直接启动 Camoufox，不调用 Xvfb。
 - `GROK_USE_XVFB=1` 可在 Linux 强制使用 Xvfb，`GROK_USE_XVFB=0` 可明确直启；默认 `auto`。
+- 任务解释器优先使用项目 `.venv`，缺失时复用启动面板的 Python；外部共享虚拟环境可用 `GROK_PYTHON_BIN` 显式固定。
 - Linux 容器必须挂载 procfs 到 `/proc`。缺失时面板会拒绝启停任务并给出明确错误，避免在无法确认进程状态时重复启动。
 - Windows 已兼容 `.venv\\Scripts\\python.exe` 与面板进程管理，但浏览器批处理仍需在目标环境单独验证。
 
@@ -87,6 +88,8 @@ export MONITOR_HOST=127.0.0.1
 export MONITOR_PORT=8787
 export PANEL_INCLUDE_TAIL=0
 export CPA_AUTH_DIR="$PWD/cpa_auth"
+# 可选：服务使用项目外虚拟环境时显式指定
+# export GROK_PYTHON_BIN=/opt/grok-runtime/bin/python
 # 可选：auto / 1 / 0；默认 auto
 # export GROK_USE_XVFB=auto
 # 可选：覆盖代理池状态位置与冷却时间
